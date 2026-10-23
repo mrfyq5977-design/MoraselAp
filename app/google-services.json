@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1083527640713",
+    "project_id": "moraselap-255d3",
+    "storage_bucket": "moraselap-255d3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1083527640713:android:e9b72d3db370aa5382f858",
+        "android_client_info": {
+          "package_name": "com.morasel.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjo6g4FU4ZhMk2IhEATh1242tE0tNk_0U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
