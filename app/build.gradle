@@ -1,29 +1,41 @@
 
-plugins {
-    id 'com.android.application'
-    id 'com.google.gms.google-services'
-}
+name: Build Morasel APK
 
-android {
-    namespace 'com.morasel.app'
-    compileSdk 35
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
-    defaultConfig {
-        applicationId 'com.morasel.app'
-        minSdk 23
-        targetSdk 35
-        versionCode 1
-        versionName '1.0'
-    }
+permissions:
+  contents: read
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-}
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-dependencies {
-    implementation platform('com.google.firebase:firebase-bom:34.4.0')
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'com.google.firebase:firebase-firestore'
-}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK with details
+        run: gradle assembleDebug --stacktrace --info
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoraselAp-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
