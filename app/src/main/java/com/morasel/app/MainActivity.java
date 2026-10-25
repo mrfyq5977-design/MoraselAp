@@ -4,309 +4,258 @@ package com.morasel.app;
 import android.app.Activity;
 import android.os.Bundle;
 import android.graphics.Color;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
+import android.view.ViewGroup;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.*;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class MainActivity extends Activity {
+    FirebaseAuth auth;
+    FirebaseFirestore db;
+    LinearLayout page, messages;
+    EditText emailInput, messageInput;
+    String uid, chatId, otherUid;
+    ListenerRegistration messageListener;
 
-    private FirebaseAuth auth;
-    private FirebaseFirestore db;
-    private LinearLayout root, content;
-    private String uid;
-
-    private int green = Color.rgb(7, 75, 53);
-    private int gold = Color.rgb(235, 190, 75);
+    int green = Color.rgb(7, 75, 53);
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
+    public void onCreate(Bundle b) {
+        super.onCreate(b);
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
         if (auth.getCurrentUser() == null) {
-            showLogin();
-            return;
+            loginScreen();
+        } else {
+            uid = auth.getCurrentUser().getUid();
+            homeScreen();
         }
-
-        uid = auth.getCurrentUser().getUid();
-        updateOnline(true);
-        showHome();
     }
 
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(radius);
-        return d;
-    }
-
-    private TextView text(String value, int size, int color) {
+    TextView label(String s, int size) {
         TextView t = new TextView(this);
-        t.setText(value);
+        t.setText(s);
         t.setTextSize(size);
-        t.setTextColor(color);
-        t.setGravity(Gravity.CENTER);
+        t.setTextColor(green);
         t.setPadding(12, 14, 12, 14);
         return t;
     }
 
-    private Button button(String label, Runnable action) {
+    Button btn(String s, Runnable r) {
         Button b = new Button(this);
-        b.setText(label);
-        b.setTextColor(Color.WHITE);
-        b.setBackground(shape(green, 24));
-        b.setOnClickListener(v -> action.run());
+        b.setText(s);
+        b.setOnClickListener(v -> r.run());
         return b;
     }
 
-    private void base(String title) {
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(16, 12, 16, 12);
-        root.setBackgroundColor(Color.rgb(245, 247, 244));
-
-        TextView heading = text(title, 25, gold);
-        heading.setTypeface(null, Typeface.BOLD);
-        heading.setBackground(shape(green, 18));
-        root.addView(heading);
-
-        content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(0, 12, 0, 12);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(content);
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                -1, 0, 1));
-
-        setContentView(root);
+    void startPage(String title) {
+        page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(14, 12, 14, 12);
+        page.addView(label(title, 23));
+        setContentView(page);
     }
 
-    private void showLogin() {
-        base("مراسل | تسجيل الدخول");
+    void toast(String s) {
+        Toast.makeText(this, s, Toast.LENGTH_LONG).show();
+    }
 
-        EditText name = new EditText(this);
-        name.setHint("اسم المستخدم");
-        content.addView(name);
+    void loginScreen() {
+        startPage("مراسل - تسجيل الدخول");
 
         EditText email = new EditText(this);
         email.setHint("البريد الإلكتروني");
-        email.setInputType(33);
-        content.addView(email);
+        page.addView(email);
 
-        EditText password = new EditText(this);
-        password.setHint("كلمة المرور");
-        password.setInputType(129);
-        content.addView(password);
+        EditText pass = new EditText(this);
+        pass.setHint("كلمة المرور");
+        pass.setInputType(129);
+        page.addView(pass);
 
-        content.addView(button("إنشاء حساب", () -> {
-            String n = name.getText().toString().trim();
+        EditText name = new EditText(this);
+        name.setHint("اسم المستخدم عند إنشاء الحساب");
+        page.addView(name);
+
+        page.addView(btn("إنشاء حساب", () -> {
             String e = email.getText().toString().trim();
-            String p = password.getText().toString();
+            String p = pass.getText().toString();
+            String n = name.getText().toString().trim();
 
-            if (n.isEmpty() || e.isEmpty() || p.length() < 6) {
-                msg("أدخل الاسم والبريد وكلمة مرور من 6 أحرف على الأقل");
+            if (e.isEmpty() || p.length() < 6 || n.isEmpty()) {
+                toast("أدخل الاسم والبريد وكلمة مرور من 6 أحرف على الأقل");
                 return;
             }
 
             auth.createUserWithEmailAndPassword(e, p)
                 .addOnSuccessListener(result -> {
                     uid = auth.getCurrentUser().getUid();
-
                     Map<String, Object> user = new HashMap<>();
                     user.put("uid", uid);
-                    user.put("username", n);
                     user.put("email", e);
-                    user.put("photoUrl", "");
+                    user.put("username", n);
                     user.put("online", true);
                     user.put("lastSeen", FieldValue.serverTimestamp());
 
                     db.collection("users").document(uid).set(user)
-                        .addOnSuccessListener(v -> showHome())
-                        .addOnFailureListener(err -> msg(err.getMessage()));
+                        .addOnSuccessListener(v -> homeScreen())
+                        .addOnFailureListener(err -> toast(err.getMessage()));
                 })
-                .addOnFailureListener(err -> msg(err.getMessage()));
+                .addOnFailureListener(err -> toast(err.getMessage()));
         }));
 
-        content.addView(button("تسجيل الدخول", () -> {
-            String e = email.getText().toString().trim();
-            String p = password.getText().toString();
-
-            auth.signInWithEmailAndPassword(e, p)
+        page.addView(btn("تسجيل الدخول", () -> {
+            auth.signInWithEmailAndPassword(
+                    email.getText().toString().trim(),
+                    pass.getText().toString())
                 .addOnSuccessListener(result -> {
                     uid = auth.getCurrentUser().getUid();
-                    updateOnline(true);
-                    showHome();
+                    homeScreen();
                 })
-                .addOnFailureListener(err -> msg(err.getMessage()));
+                .addOnFailureListener(err -> toast(err.getMessage()));
         }));
     }
 
-    private void showHome() {
-        base("مراسل 💬");
+    void homeScreen() {
+        startPage("مراسل 💬");
 
-        content.addView(text("أهلًا بك في مراسل", 21, green));
+        emailInput = new EditText(this);
+        emailInput.setHint("بريد المستخدم الذي تريد مراسلته");
+        page.addView(emailInput);
 
-        content.addView(button("💬 المحادثات السابقة", this::showChats));
-        content.addView(button("👤 الملف الشخصي", this::showProfile));
-        content.addView(button("👥 المجموعات", this::showGroups));
-        content.addView(button("📞 المكالمات", this::showCalls));
-
-        content.addView(button("تسجيل الخروج", () -> {
-            updateOnline(false);
+        page.addView(btn("البحث وفتح المحادثة", this::findUser));
+        page.addView(btn("تسجيل الخروج", () -> {
             auth.signOut();
-            showLogin();
+            loginScreen();
         }));
     }
 
-    private void showProfile() {
-        base("الملف الشخصي");
+    void findUser() {
+        String email = emailInput.getText().toString().trim();
+        if (email.isEmpty()) {
+            toast("أدخل بريد المستخدم");
+            return;
+        }
 
-        db.collection("users").document(uid).get()
-            .addOnSuccessListener(doc -> {
-                EditText name = new EditText(this);
-                name.setHint("اسم المستخدم");
-                name.setText(doc.getString("username"));
-                content.addView(name);
+        db.collection("users")
+            .whereEqualTo("email", email)
+            .limit(1)
+            .get()
+            .addOnSuccessListener(snap -> {
+                if (snap.isEmpty()) {
+                    toast("لم يتم العثور على المستخدم. يجب أن يكون قد أنشأ حسابًا.");
+                    return;
+                }
 
-                content.addView(text(
-                    "البريد: " + auth.getCurrentUser().getEmail(),
-                    16, green));
+                DocumentSnapshot user = snap.getDocuments().get(0);
+                otherUid = user.getString("uid");
 
-                content.addView(text(
-                    "الصورة الشخصية: تحتاج إعداد رفع الصور",
-                    14, green));
+                if (otherUid == null || otherUid.equals(uid)) {
+                    toast("اختر حساب مستخدم آخر");
+                    return;
+                }
 
-                content.addView(button("حفظ الاسم", () -> {
-                    String n = name.getText().toString().trim();
-                    if (n.isEmpty()) {
-                        msg("اكتب اسم المستخدم");
+                chatId = uid.compareTo(otherUid) < 0
+                    ? uid + "_" + otherUid
+                    : otherUid + "_" + uid;
+
+                DocumentReference chat =
+                    db.collection("chats").document(chatId);
+
+                chat.get().addOnSuccessListener(doc -> {
+                    if (doc.exists()) {
+                        openChat();
                         return;
                     }
-                    db.collection("users").document(uid)
-                        .update("username", n)
-                        .addOnSuccessListener(v -> msg("تم حفظ الاسم"))
-                        .addOnFailureListener(err -> msg(err.getMessage()));
-                }));
-            });
 
-        content.addView(button("رجوع", this::showHome));
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("participants", Arrays.asList(uid, otherUid));
+                    data.put("lastMessage", "");
+                    data.put("createdAt", FieldValue.serverTimestamp());
+
+                    chat.set(data)
+                        .addOnSuccessListener(v -> openChat())
+                        .addOnFailureListener(err -> toast(err.getMessage()));
+                });
+            })
+            .addOnFailureListener(err -> toast(err.getMessage()));
     }
 
-    private void showChats() {
-        base("المحادثات");
+    void openChat() {
+        startPage("المحادثة");
 
-        db.collection("chats")
-            .whereArrayContains("participants", uid)
+        messages = new LinearLayout(this);
+        messages.setOrientation(LinearLayout.VERTICAL);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(messages);
+        page.addView(scroll, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+
+        messageInput = new EditText(this);
+        messageInput.setHint("اكتب رسالتك...");
+        bar.addView(messageInput, new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        bar.addView(btn("إرسال", this::sendMessage));
+        page.addView(bar);
+        page.addView(btn("رجوع", this::homeScreen));
+
+        if (messageListener != null) {
+            messageListener.remove();
+        }
+
+        messageListener = db.collection("chats").document(chatId)
+            .collection("messages")
+            .orderBy("createdAt", Query.Direction.ASCENDING)
             .addSnapshotListener((snap, error) -> {
                 if (error != null) {
-                    msg(error.getMessage());
+                    toast("تعذر تحميل الرسائل: " + error.getMessage());
                     return;
                 }
-                content.removeAllViews();
-
-                if (snap == null || snap.isEmpty()) {
-                    content.addView(text(
-                        "لا توجد محادثات حتى الآن",
-                        17, green));
-                    return;
-                }
-
-                for (DocumentSnapshot d : snap.getDocuments()) {
-                    String last = d.getString("lastMessage");
-                    content.addView(text(
-                        "محادثة\n" + (last == null ? "ابدأ الحديث" : last),
-                        17, green));
-                }
-            });
-
-        content.addView(button("رجوع", this::showHome));
-    }
-
-    private void showGroups() {
-        base("المجموعات");
-
-        EditText groupName = new EditText(this);
-        groupName.setHint("اسم المجموعة");
-        content.addView(groupName);
-
-        content.addView(button("إنشاء مجموعة", () -> {
-            String name = groupName.getText().toString().trim();
-            if (name.isEmpty()) {
-                msg("اكتب اسم المجموعة");
-                return;
-            }
-
-            Map<String, Object> group = new HashMap<>();
-            group.put("name", name);
-            group.put("createdBy", uid);
-            group.put("members", java.util.Arrays.asList(uid));
-            group.put("createdAt", FieldValue.serverTimestamp());
-
-            db.collection("groups").add(group)
-                .addOnSuccessListener(ref -> msg("تم إنشاء المجموعة"))
-                .addOnFailureListener(err -> msg(err.getMessage()));
-        }));
-
-        db.collection("groups")
-            .whereArrayContains("members", uid)
-            .addSnapshotListener((snap, error) -> {
-                if (error != null) return;
                 if (snap == null) return;
 
+                messages.removeAllViews();
                 for (DocumentSnapshot d : snap.getDocuments()) {
-                    String n = d.getString("name");
-                    content.addView(text(
-                        "👥 " + (n == null ? "مجموعة" : n),
-                        17, green));
+                    String text = d.getString("text");
+                    String sender = d.getString("senderId");
+                    TextView bubble = label(
+                        (uid.equals(sender) ? "أنا: " : "المستخدم: ")
+                        + (text == null ? "" : text), 16);
+                    messages.addView(bubble);
                 }
             });
-
-        content.addView(button("رجوع", this::showHome));
     }
 
-    private void showCalls() {
-        base("المكالمات");
+    void sendMessage() {
+        String text = messageInput.getText().toString().trim();
+        if (text.isEmpty()) return;
 
-        content.addView(text(
-            "المكالمات الصوتية والمرئية تحتاج إعداد خدمة اتصال وربطها بالمستخدمين.",
-            17, green));
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("text", text);
+        msg.put("senderId", uid);
+        msg.put("createdAt", FieldValue.serverTimestamp());
 
-        content.addView(button("مكالمة صوتية", () ->
-            msg("يلزم إعداد خدمة الاتصال أولًا")));
-
-        content.addView(button("مكالمة مرئية", () ->
-            msg("يلزم إعداد خدمة الاتصال أولًا")));
-
-        content.addView(button("رجوع", this::showHome));
-    }
-
-    private void updateOnline(boolean online) {
-        if (uid == null) return;
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("online", online);
-        data.put("lastSeen", FieldValue.serverTimestamp());
-
-        db.collection("users").document(uid).set(
-            data, SetOptions.merge());
-    }
-
-    private void msg(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        db.collection("chats").document(chatId)
+            .collection("messages").add(msg)
+            .addOnSuccessListener(ref -> {
+                messageInput.setText("");
+                db.collection("chats").document(chatId)
+                    .update("lastMessage", text,
+                            "lastMessageAt", FieldValue.serverTimestamp());
+            })
+            .addOnFailureListener(err -> toast(
+                "فشل الإرسال: " + err.getMessage()));
     }
 
     @Override
     protected void onDestroy() {
-        updateOnline(false);
+        if (messageListener != null) messageListener.remove();
         super.onDestroy();
     }
 }
