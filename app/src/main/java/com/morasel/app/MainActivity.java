@@ -8,46 +8,31 @@ import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.*;
 
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.firestore.DocumentSnapshot;
-import com.google.firebase.firestore.FieldValue;
-import com.google.firebase.firestore.FirebaseFirestore;
-import com.google.firebase.firestore.ListenerRegistration;
-import com.google.firebase.firestore.Query;
+import com.google.firebase.firestore.*;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 public class MainActivity extends Activity {
 
     private FirebaseAuth auth;
     private FirebaseFirestore db;
 
-    private LinearLayout root;
-    private EditText usernameInput, searchInput, messageInput;
-    private ScrollView messagesScroll;
-
-    private String currentUid = "";
-    private String currentName = "";
-    private String chatId = "";
-    private String otherUid = "";
-    private String otherName = "";
-
+    private LinearLayout root, list;
+    private EditText messageInput;
+    private ListenerRegistration chatsListener;
     private ListenerRegistration messagesListener;
 
-    private final int dark = Color.rgb(18, 35, 29);
-    private final int green = Color.rgb(20, 100, 65);
-    private final int gold = Color.rgb(239, 193, 77);
-    private final int white = Color.WHITE;
+    private String uid = "";
+    private String username = "";
+    private String activeChat = "";
+
+    private final int BG = Color.rgb(17, 35, 28);
+    private final int GREEN = Color.rgb(24, 104, 68);
+    private final int GOLD = Color.rgb(239, 193, 77);
+    private final int WHITE = Color.WHITE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,162 +41,141 @@ public class MainActivity extends Activity {
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        setupScreen();
-        signInAnonymously();
-    }
-
-    private void setupScreen() {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(20, 16, 20, 16);
-        root.setBackgroundColor(dark);
+        root.setPadding(16, 12, 16, 12);
+        root.setBackgroundColor(BG);
         setContentView(root);
+
+        login();
     }
 
-    private void signInAnonymously() {
+    private void login() {
         if (auth.getCurrentUser() != null) {
-            currentUid = auth.getCurrentUser().getUid();
-            loadMyProfile();
+            uid = auth.getCurrentUser().getUid();
+            loadProfile();
             return;
         }
 
-        showLoading("جارٍ الدخول إلى مراسل...");
+        showLoading("جارٍ فتح مراسل...");
 
         auth.signInAnonymously()
-                .addOnSuccessListener(result -> {
-                    if (auth.getCurrentUser() == null) {
-                        showWelcome();
-                        return;
-                    }
-
-                    currentUid = auth.getCurrentUser().getUid();
-                    loadMyProfile();
-                })
-                .addOnFailureListener(e -> {
-                    showWelcome();
-                    toast("فشل الدخول: " + e.getLocalizedMessage());
-                });
+            .addOnSuccessListener(result -> {
+                uid = result.getUser().getUid();
+                loadProfile();
+            })
+            .addOnFailureListener(e -> {
+                showWelcome();
+                toast("تعذر الدخول: " + e.getLocalizedMessage());
+            });
     }
 
-    private void showLoading(String text) {
+    private void loadProfile() {
+        db.collection("users").document(uid).get()
+            .addOnSuccessListener(doc -> {
+                if (doc.exists() && doc.getString("username") != null) {
+                    username = doc.getString("username");
+                    showHome();
+                } else {
+                    showCreateProfile();
+                }
+            })
+            .addOnFailureListener(e -> {
+                showWelcome();
+                toast("تعذر تحميل الحساب.");
+            });
+    }
+
+    private void showLoading(String value) {
         root.removeAllViews();
-
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextColor(gold);
-        label.setTextSize(22);
-        label.setGravity(Gravity.CENTER);
-
-        root.addView(label, new LinearLayout.LayoutParams(-1, 0, 1));
+        TextView t = makeText(value, 22, GOLD);
+        t.setGravity(Gravity.CENTER);
+        root.addView(t, new LinearLayout.LayoutParams(-1, 0, 1));
     }
 
     private void showWelcome() {
         root.removeAllViews();
-
-        addTitle("مراسل");
-        addText("تطبيق المراسلة والمحادثة");
-        addText("دخول بدون رقم هاتف أو بريد إلكتروني.");
-
-        addButton("الدخول إلى التطبيق", this::signInAnonymously);
-    }
-
-    private void loadMyProfile() {
-        if (auth.getCurrentUser() == null) {
-            showWelcome();
-            return;
-        }
-
-        currentUid = auth.getCurrentUser().getUid();
-
-        db.collection("users").document(currentUid).get()
-                .addOnSuccessListener(document -> {
-                    if (!document.exists()) {
-                        showCreateProfile();
-                        return;
-                    }
-
-                    String name = document.getString("username");
-
-                    if (name == null || name.trim().isEmpty()) {
-                        showCreateProfile();
-                    } else {
-                        currentName = name;
-                        showHome();
-                    }
-                })
-                .addOnFailureListener(e -> {
-                    showWelcome();
-                    toast("تعذر تحميل الحساب: " + e.getLocalizedMessage());
-                });
+        addHeading("مراسل");
+        addText("تواصل مع الآخرين بسهولة.");
+        addButton("إعادة المحاولة", this::login);
     }
 
     private void showCreateProfile() {
         root.removeAllViews();
+        addHeading("إنشاء حساب");
 
-        addTitle("إنشاء حساب مراسل");
-        addText("اختر اسم المستخدم الذي سيظهر للآخرين.");
-
-        usernameInput = addInput(
-                "اسم المستخدم",
-                InputType.TYPE_CLASS_TEXT
+        EditText name = addInput(
+            "اختر اسم المستخدم",
+            InputType.TYPE_CLASS_TEXT
         );
 
         addButton("حفظ ومتابعة", () -> {
-            String name = usernameInput.getText().toString().trim();
+            String n = name.getText().toString().trim();
 
-            if (name.length() < 3) {
-                toast("اكتب اسمًا من 3 أحرف على الأقل.");
+            if (n.length() < 3) {
+                toast("اسم المستخدم يجب أن يكون 3 أحرف على الأقل.");
                 return;
             }
 
-            String normalized = name.toLowerCase(Locale.ROOT);
+            String lower = n.toLowerCase(Locale.ROOT);
 
-            Map<String, Object> user = new HashMap<>();
-            user.put("uid", currentUid);
-            user.put("username", name);
-            user.put("usernameLower", normalized);
-            user.put("online", true);
-            user.put("createdAt", FieldValue.serverTimestamp());
+            db.collection("users")
+                .whereEqualTo("usernameLower", lower)
+                .get()
+                .addOnSuccessListener(found -> {
+                    if (!found.isEmpty()) {
+                        toast("اسم المستخدم مستخدم، اختر اسمًا آخر.");
+                        return;
+                    }
 
-            db.collection("users").document(currentUid)
-                    .set(user)
-                    .addOnSuccessListener(unused -> {
-                        currentName = name;
-                        showHome();
-                    })
-                    .addOnFailureListener(e ->
-                            toast("تعذر حفظ الحساب: " + e.getLocalizedMessage()));
+                    Map<String, Object> user = new HashMap<>();
+                    user.put("uid", uid);
+                    user.put("username", n);
+                    user.put("usernameLower", lower);
+                    user.put("createdAt", FieldValue.serverTimestamp());
+
+                    db.collection("users").document(uid)
+                        .set(user)
+                        .addOnSuccessListener(v -> {
+                            username = n;
+                            showHome();
+                        })
+                        .addOnFailureListener(e ->
+                            toast("تعذر حفظ الاسم."));
+                })
+                .addOnFailureListener(e ->
+                    toast("تعذر التحقق من الاسم."));
         });
     }
 
     private void showHome() {
-        removeMessagesListener();
-        root.removeAllViews();
+        stopChatListeners();
 
-        addTitle("مراسل");
-        addText("مرحبًا، " + currentName);
-
-        searchInput = addInput(
-                "ابحث باسم المستخدم",
-                InputType.TYPE_CLASS_TEXT
-        );
-
-        addButton("بحث عن مستخدم", this::findUser);
-        addButton("تحديث الصفحة", this::showHome);
-
-        addText("اكتب اسم المستخدم لبدء محادثة.");
-    }
-
-    private void findUser() {
-        String name = searchInput.getText().toString().trim();
-
-        if (name.isEmpty()) {
-            toast("اكتب اسم المستخدم أولًا.");
-            return;
+        if (chatsListener != null) {
+            chatsListener.remove();
+            chatsListener = null;
         }
 
-        db.collection("users")
-                .whereEqualTo("usernameLower", name.toLowerCase(Locale.ROOT))
+        root.removeAllViews();
+        addHeading("مراسل");
+        addText("مرحبًا، " + username);
+
+        EditText search = addInput(
+            "🔍 ابحث باسم المستخدم",
+            InputType.TYPE_CLASS_TEXT
+        );
+
+        addButton("بحث عن مستخدم", () -> {
+            String name = search.getText().toString().trim()
+                .toLowerCase(Locale.ROOT);
+
+            if (name.isEmpty()) {
+                toast("اكتب اسم المستخدم.");
+                return;
+            }
+
+            db.collection("users")
+                .whereEqualTo("usernameLower", name)
                 .limit(1)
                 .get()
                 .addOnSuccessListener(result -> {
@@ -221,252 +185,312 @@ public class MainActivity extends Activity {
                     }
 
                     DocumentSnapshot user = result.getDocuments().get(0);
-                    String uid = user.getString("uid");
-                    String username = user.getString("username");
+                    String partnerUid = user.getString("uid");
+                    String partnerName = user.getString("username");
 
-                    if (uid == null || uid.equals(currentUid)) {
-                        toast("هذا حسابك أنت.");
+                    if (partnerUid == null || partnerUid.equals(uid)) {
+                        toast("لا يمكنك مراسلة نفسك.");
                         return;
                     }
 
-                    otherUid = uid;
-                    otherName = username == null ? "مستخدم" : username;
-
-                    openOrCreateChat();
+                    openOrCreateChat(partnerUid, partnerName);
                 })
                 .addOnFailureListener(e ->
-                        toast("فشل البحث: " + e.getLocalizedMessage()));
+                    toast("فشل البحث عن المستخدم."));
+        });
+
+        addText("💬 محادثاتك");
+
+        ScrollView scroll = new ScrollView(this);
+        list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list);
+
+        root.addView(scroll,
+            new LinearLayout.LayoutParams(-1, 0, 1));
+
+        listenChats();
     }
 
-    private void openOrCreateChat() {
-        String first = currentUid.compareTo(otherUid) < 0
-                ? currentUid : otherUid;
+    private void listenChats() {
+        chatsListener = db.collection("chats")
+            .whereArrayContains("participants", uid)
+            .addSnapshotListener((snapshot, error) -> {
+                if (error != null) {
+                    toast("تعذر تحميل المحادثات.");
+                    return;
+                }
 
-        String second = currentUid.compareTo(otherUid) < 0
-                ? otherUid : currentUid;
+                if (snapshot == null) return;
 
-        chatId = first + "_" + second;
+                list.removeAllViews();
+
+                for (DocumentSnapshot chat : snapshot.getDocuments()) {
+                    List<String> participants =
+                        (List<String>) chat.get("participants");
+
+                    if (participants == null) continue;
+
+                    String partnerUid = null;
+
+                    for (String p : participants) {
+                        if (!uid.equals(p)) {
+                            partnerUid = p;
+                            break;
+                        }
+                    }
+
+                    if (partnerUid == null) continue;
+
+                    String other = partnerUid;
+
+                    db.collection("users").document(other).get()
+                        .addOnSuccessListener(user -> {
+                            if (list == null) return;
+
+                            String name = user.getString("username");
+                            if (name == null) name = "مستخدم";
+
+                            Button button = makeButton("💬  " + name);
+                            String finalName = name;
+
+                            button.setOnClickListener(v ->
+                                openChat(chat.getId(), other, finalName));
+
+                            list.addView(button);
+                        });
+                }
+
+                if (snapshot.isEmpty()) {
+                    TextView empty = makeText(
+                        "لا توجد محادثات بعد.",
+                        16,
+                        WHITE
+                    );
+                    empty.setGravity(Gravity.CENTER);
+                    list.addView(empty);
+                }
+            });
+    }
+
+    private void openOrCreateChat(
+        String partnerUid,
+        String partnerName
+    ) {
+        String first = uid.compareTo(partnerUid) < 0
+            ? uid : partnerUid;
+
+        String second = uid.compareTo(partnerUid) < 0
+            ? partnerUid : uid;
+
+        String chatId = first + "_" + second;
 
         Map<String, Object> chat = new HashMap<>();
         chat.put("participants", Arrays.asList(first, second));
         chat.put("updatedAt", FieldValue.serverTimestamp());
 
         db.collection("chats").document(chatId)
-                .set(chat, com.google.firebase.firestore.SetOptions.merge())
-                .addOnSuccessListener(unused -> openChat())
-                .addOnFailureListener(e ->
-                        toast("تعذر فتح المحادثة: " + e.getLocalizedMessage()));
+            .set(chat, SetOptions.merge())
+            .addOnSuccessListener(v ->
+                openChat(chatId, partnerUid, partnerName))
+            .addOnFailureListener(e ->
+                toast("تعذر فتح المحادثة."));
     }
 
-    private void openChat() {
-        removeMessagesListener();
+    private void openChat(
+        String chatId,
+        String partnerUid,
+        String partnerName
+    ) {
+        stopChatListeners();
+        activeChat = chatId;
+
         root.removeAllViews();
+        addHeading("💬 " + partnerName);
+        addButton("← رجوع", this::showHome);
 
-        addTitle("محادثة مع " + otherName);
-        addButton("رجوع", this::showHome);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout messages = new LinearLayout(this);
+        messages.setOrientation(LinearLayout.VERTICAL);
+        messages.setPadding(4, 4, 4, 4);
+        scroll.addView(messages);
 
-        messagesScroll = new ScrollView(this);
+        root.addView(scroll,
+            new LinearLayout.LayoutParams(-1, 0, 1));
 
-        LinearLayout messagesLayout = new LinearLayout(this);
-        messagesLayout.setOrientation(LinearLayout.VERTICAL);
-        messagesLayout.setPadding(4, 4, 4, 4);
-
-        messagesScroll.addView(messagesLayout);
-
-        LinearLayout.LayoutParams scrollParams =
-                new LinearLayout.LayoutParams(-1, 0, 1);
-
-        scrollParams.setMargins(0, 8, 0, 8);
-        root.addView(messagesScroll, scrollParams);
-
-        LinearLayout sendRow = new LinearLayout(this);
-        sendRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
 
         messageInput = new EditText(this);
         messageInput.setHint("اكتب رسالتك...");
-        messageInput.setTextColor(white);
+        messageInput.setTextColor(WHITE);
         messageInput.setHintTextColor(Color.LTGRAY);
         messageInput.setInputType(
-                InputType.TYPE_CLASS_TEXT |
-                InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            InputType.TYPE_CLASS_TEXT |
+            InputType.TYPE_TEXT_FLAG_MULTI_LINE
         );
 
-        sendRow.addView(messageInput,
-                new LinearLayout.LayoutParams(0, -2, 1));
+        bottom.addView(messageInput,
+            new LinearLayout.LayoutParams(0, -2, 1));
 
-        Button sendButton = makeButton("إرسال");
-        sendButton.setOnClickListener(v -> sendMessage());
-        sendRow.addView(sendButton);
-
-        root.addView(sendRow);
+        Button send = makeButton("إرسال");
+        send.setOnClickListener(v -> sendMessage());
+        bottom.addView(send);
+        root.addView(bottom);
 
         messagesListener = db.collection("chats")
-                .document(chatId)
-                .collection("messages")
-                .orderBy("createdAt", Query.Direction.ASCENDING)
-                .addSnapshotListener((snapshots, error) -> {
-                    if (error != null) {
-                        toast("تعذر تحميل الرسائل: " + error.getLocalizedMessage());
-                        return;
-                    }
+            .document(chatId)
+            .collection("messages")
+            .orderBy("createdAt", Query.Direction.ASCENDING)
+            .addSnapshotListener((snapshot, error) -> {
+                if (error != null) {
+                    toast("تعذر تحميل الرسائل.");
+                    return;
+                }
 
-                    if (snapshots == null) return;
+                if (snapshot == null) return;
 
-                    messagesLayout.removeAllViews();
+                messages.removeAllViews();
 
-                    for (DocumentSnapshot doc : snapshots.getDocuments()) {
-                        String sender = doc.getString("senderId");
-                        String text = doc.getString("text");
+                for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                    String body = doc.getString("text");
+                    String sender = doc.getString("senderId");
 
-                        if (text == null) continue;
+                    if (body == null) continue;
 
-                        TextView bubble = new TextView(this);
-                        bubble.setText(text);
-                        bubble.setTextColor(white);
-                        bubble.setTextSize(16);
-                        bubble.setPadding(14, 10, 14, 10);
+                    TextView bubble = makeText(body, 16, WHITE);
+                    bubble.setPadding(12, 10, 12, 10);
 
-                        GradientDrawable shape = new GradientDrawable();
-                        shape.setColor(currentUid.equals(sender)
-                                ? green : Color.rgb(52, 65, 59));
-                        shape.setCornerRadius(18);
-                        bubble.setBackground(shape);
+                    GradientDrawable shape = new GradientDrawable();
+                    shape.setColor(uid.equals(sender)
+                        ? GREEN : Color.rgb(52, 65, 59));
+                    shape.setCornerRadius(16);
+                    bubble.setBackground(shape);
 
-                        LinearLayout.LayoutParams params =
-                                new LinearLayout.LayoutParams(-2, -2);
+                    LinearLayout.LayoutParams params =
+                        new LinearLayout.LayoutParams(-2, -2);
 
-                        params.setMargins(0, 5, 0, 5);
-                        params.gravity = currentUid.equals(sender)
-                                ? Gravity.END : Gravity.START;
+                    params.setMargins(0, 5, 0, 5);
+                    params.gravity = uid.equals(sender)
+                        ? Gravity.END : Gravity.START;
 
-                        messagesLayout.addView(bubble, params);
-                    }
+                    messages.addView(bubble, params);
+                }
 
-                    messagesScroll.post(() ->
-                            messagesScroll.fullScroll(View.FOCUS_DOWN));
-                });
+                scroll.post(() ->
+                    scroll.fullScroll(View.FOCUS_DOWN));
+            });
     }
 
     private void sendMessage() {
-        if (messageInput == null || chatId.isEmpty()) return;
+        if (messageInput == null || activeChat.isEmpty()) return;
 
-        String text = messageInput.getText().toString().trim();
+        String body = messageInput.getText().toString().trim();
 
-        if (text.isEmpty()) return;
+        if (body.isEmpty()) return;
 
-        if (text.length() > 2000) {
+        if (body.length() > 2000) {
             toast("الرسالة طويلة جدًا.");
             return;
         }
 
         Map<String, Object> message = new HashMap<>();
-        message.put("senderId", currentUid);
-        message.put("text", text);
+        message.put("senderId", uid);
+        message.put("text", body);
         message.put("createdAt", FieldValue.serverTimestamp());
 
-        db.collection("chats")
-                .document(chatId)
-                .collection("messages")
-                .add(message)
-                .addOnSuccessListener(ref -> {
-                    if (messageInput != null) {
-                        messageInput.setText("");
-                    }
+        db.collection("chats").document(activeChat)
+            .collection("messages")
+            .add(message)
+            .addOnSuccessListener(ref -> {
+                if (messageInput != null) {
+                    messageInput.setText("");
+                }
 
-                    db.collection("chats").document(chatId)
-                            .update("updatedAt", FieldValue.serverTimestamp());
-                })
-                .addOnFailureListener(e ->
-                        toast("تعذر إرسال الرسالة: " + e.getLocalizedMessage()));
+                db.collection("chats").document(activeChat)
+                    .update("updatedAt", FieldValue.serverTimestamp());
+            })
+            .addOnFailureListener(e ->
+                toast("تعذر إرسال الرسالة."));
     }
 
-    private void removeMessagesListener() {
+    private void stopChatListeners() {
         if (messagesListener != null) {
             messagesListener.remove();
             messagesListener = null;
         }
     }
 
-    private void addTitle(String text) {
-        TextView title = new TextView(this);
-        title.setText(text);
-        title.setTextColor(gold);
-        title.setTextSize(28);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 12, 0, 12);
-
-        root.addView(title);
+    private void addHeading(String value) {
+        TextView t = makeText(value, 27, GOLD);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, 12, 0, 12);
+        root.addView(t);
     }
 
-    private void addText(String text) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextColor(white);
-        label.setTextSize(16);
-        label.setGravity(Gravity.CENTER);
-        label.setPadding(0, 8, 0, 12);
-
-        root.addView(label);
+    private void addText(String value) {
+        TextView t = makeText(value, 16, WHITE);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, 8, 0, 10);
+        root.addView(t);
     }
 
-    private EditText addInput(String hint, int inputType) {
-        EditText edit = new EditText(this);
-        edit.setHint(hint);
-        edit.setTextColor(white);
-        edit.setHintTextColor(Color.LTGRAY);
-        edit.setInputType(inputType);
-        edit.setSingleLine(true);
-        edit.setPadding(14, 8, 14, 8);
+    private TextView makeText(String value, int size, int color) {
+        TextView t = new TextView(this);
+        t.setText(value);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        return t;
+    }
+
+    private EditText addInput(String hint, int type) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setTextColor(WHITE);
+        e.setHintTextColor(Color.LTGRAY);
+        e.setInputType(type);
+        root.addView(e);
+        return e;
+    }
+
+    private Button makeButton(String value) {
+        Button b = new Button(this);
+        b.setText(value);
+        b.setTextColor(BG);
 
         GradientDrawable shape = new GradientDrawable();
-        shape.setColor(Color.rgb(35, 52, 44));
-        shape.setCornerRadius(14);
-        shape.setStroke(1, gold);
+        shape.setColor(GOLD);
+        shape.setCornerRadius(18);
+        b.setBackground(shape);
 
-        edit.setBackground(shape);
-
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(-1, -2);
-
-        params.setMargins(0, 8, 0, 8);
-        root.addView(edit, params);
-
-        return edit;
+        return b;
     }
 
-    private void addButton(String text, Runnable action) {
-        Button button = makeButton(text);
-        button.setOnClickListener(v -> action.run());
+    private void addButton(String value, Runnable action) {
+        Button b = makeButton(value);
+        b.setOnClickListener(v -> action.run());
 
         LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(-1, -2);
+            new LinearLayout.LayoutParams(-1, -2);
 
         params.setMargins(0, 6, 0, 6);
-        root.addView(button, params);
+        root.addView(b, params);
     }
 
-    private Button makeButton(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextColor(dark);
-        button.setTextSize(16);
-        button.setAllCaps(false);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        button.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(gold)
-        );
-
-        return button;
-    }
-
-    private void toast(String text) {
-        Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+    private void toast(String value) {
+        Toast.makeText(this, value, Toast.LENGTH_LONG).show();
     }
 
     @Override
     protected void onDestroy() {
-        removeMessagesListener();
+        stopChatListeners();
+
+        if (chatsListener != null) {
+            chatsListener.remove();
+            chatsListener = null;
+        }
+
         super.onDestroy();
     }
-            }
+                              }
