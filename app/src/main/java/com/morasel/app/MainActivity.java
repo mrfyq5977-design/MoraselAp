@@ -1,4 +1,3 @@
-
 package com.morasel.app;
 
 import android.app.Activity;
@@ -6,9 +5,9 @@ import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
-import android.view.inputmethod.InputType;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -21,6 +20,7 @@ import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
+import com.google.firebase.firestore.Query;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -32,9 +32,9 @@ public class MainActivity extends Activity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
 
-    private LinearLayout root, content;
+    private LinearLayout root;
     private EditText usernameInput, searchInput, messageInput;
-    private ScrollView scrollView;
+    private ScrollView messagesScroll;
 
     private String currentUid = "";
     private String currentName = "";
@@ -43,7 +43,6 @@ public class MainActivity extends Activity {
     private String otherName = "";
 
     private ListenerRegistration messagesListener;
-    private ListenerRegistration profileListener;
 
     private final int dark = Color.rgb(18, 35, 29);
     private final int green = Color.rgb(20, 100, 65);
@@ -64,9 +63,8 @@ public class MainActivity extends Activity {
     private void setupScreen() {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(20, 20, 20, 20);
+        root.setPadding(20, 16, 20, 16);
         root.setBackgroundColor(dark);
-
         setContentView(root);
     }
 
@@ -101,11 +99,10 @@ public class MainActivity extends Activity {
         TextView label = new TextView(this);
         label.setText(text);
         label.setTextColor(gold);
-        label.setTextSize(21);
+        label.setTextSize(22);
         label.setGravity(Gravity.CENTER);
-        root.addView(label, new LinearLayout.LayoutParams(
-                -1, 0, 1
-        ));
+
+        root.addView(label, new LinearLayout.LayoutParams(-1, 0, 1));
     }
 
     private void showWelcome() {
@@ -113,7 +110,7 @@ public class MainActivity extends Activity {
 
         addTitle("مراسل");
         addText("تطبيق المراسلة والمحادثة");
-        addText("ادخل بدون رقم هاتف أو بريد إلكتروني.");
+        addText("دخول بدون رقم هاتف أو بريد إلكتروني.");
 
         addButton("الدخول إلى التطبيق", this::signInAnonymously);
     }
@@ -128,16 +125,18 @@ public class MainActivity extends Activity {
 
         db.collection("users").document(currentUid).get()
                 .addOnSuccessListener(document -> {
-                    if (document.exists()) {
-                        currentName = document.getString("username");
-
-                        if (currentName == null || currentName.trim().isEmpty()) {
-                            showCreateProfile();
-                        } else {
-                            showHome();
-                        }
-                    } else {
+                    if (!document.exists()) {
                         showCreateProfile();
+                        return;
+                    }
+
+                    String name = document.getString("username");
+
+                    if (name == null || name.trim().isEmpty()) {
+                        showCreateProfile();
+                    } else {
+                        currentName = name;
+                        showHome();
                     }
                 })
                 .addOnFailureListener(e -> {
@@ -150,7 +149,7 @@ public class MainActivity extends Activity {
         root.removeAllViews();
 
         addTitle("إنشاء حساب مراسل");
-        addText("اختر اسم مستخدم ليعرفك الآخرون.");
+        addText("اختر اسم المستخدم الذي سيظهر للآخرين.");
 
         usernameInput = addInput(
                 "اسم المستخدم",
@@ -165,17 +164,16 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            String usernameLower = name.toLowerCase(Locale.ROOT);
+            String normalized = name.toLowerCase(Locale.ROOT);
 
             Map<String, Object> user = new HashMap<>();
             user.put("uid", currentUid);
             user.put("username", name);
-            user.put("usernameLower", usernameLower);
+            user.put("usernameLower", normalized);
             user.put("online", true);
             user.put("createdAt", FieldValue.serverTimestamp());
 
-            db.collection("users")
-                    .document(currentUid)
+            db.collection("users").document(currentUid)
                     .set(user)
                     .addOnSuccessListener(unused -> {
                         currentName = name;
@@ -187,7 +185,7 @@ public class MainActivity extends Activity {
     }
 
     private void showHome() {
-        removeChatListener();
+        removeMessagesListener();
         root.removeAllViews();
 
         addTitle("مراسل");
@@ -200,14 +198,8 @@ public class MainActivity extends Activity {
 
         addButton("بحث عن مستخدم", this::findUser);
         addButton("تحديث الصفحة", this::showHome);
-        addText("ابحث عن اسم مستخدم لبدء محادثة.");
 
-        addButton("تسجيل الخروج من الجلسة الحالية", () -> {
-            auth.signOut();
-            currentUid = "";
-            currentName = "";
-            signInAnonymously();
-        });
+        addText("اكتب اسم المستخدم لبدء محادثة.");
     }
 
     private void findUser() {
@@ -229,30 +221,30 @@ public class MainActivity extends Activity {
                     }
 
                     DocumentSnapshot user = result.getDocuments().get(0);
-                    String foundUid = user.getString("uid");
-                    String foundName = user.getString("username");
+                    String uid = user.getString("uid");
+                    String username = user.getString("username");
 
-                    if (foundUid == null || foundUid.equals(currentUid)) {
+                    if (uid == null || uid.equals(currentUid)) {
                         toast("هذا حسابك أنت.");
                         return;
                     }
 
-                    if (foundName == null) {
-                        foundName = "مستخدم";
-                    }
+                    otherUid = uid;
+                    otherName = username == null ? "مستخدم" : username;
 
-                    openOrCreateChat(foundUid, foundName);
+                    openOrCreateChat();
                 })
                 .addOnFailureListener(e ->
                         toast("فشل البحث: " + e.getLocalizedMessage()));
     }
 
-    private void openOrCreateChat(String uid, String name) {
-        otherUid = uid;
-        otherName = name;
+    private void openOrCreateChat() {
+        String first = currentUid.compareTo(otherUid) < 0
+                ? currentUid : otherUid;
 
-        String first = currentUid.compareTo(uid) < 0 ? currentUid : uid;
-        String second = currentUid.compareTo(uid) < 0 ? uid : currentUid;
+        String second = currentUid.compareTo(otherUid) < 0
+                ? otherUid : currentUid;
+
         chatId = first + "_" + second;
 
         Map<String, Object> chat = new HashMap<>();
@@ -267,24 +259,25 @@ public class MainActivity extends Activity {
     }
 
     private void openChat() {
-        removeChatListener();
+        removeMessagesListener();
         root.removeAllViews();
 
         addTitle("محادثة مع " + otherName);
-
         addButton("رجوع", this::showHome);
 
-        scrollView = new ScrollView(this);
-        LinearLayout.LayoutParams scrollParams =
-                new LinearLayout.LayoutParams(-1, 0, 1);
-        scrollParams.setMargins(0, 8, 0, 8);
+        messagesScroll = new ScrollView(this);
 
         LinearLayout messagesLayout = new LinearLayout(this);
         messagesLayout.setOrientation(LinearLayout.VERTICAL);
         messagesLayout.setPadding(4, 4, 4, 4);
 
-        scrollView.addView(messagesLayout);
-        root.addView(scrollView, scrollParams);
+        messagesScroll.addView(messagesLayout);
+
+        LinearLayout.LayoutParams scrollParams =
+                new LinearLayout.LayoutParams(-1, 0, 1);
+
+        scrollParams.setMargins(0, 8, 0, 8);
+        root.addView(messagesScroll, scrollParams);
 
         LinearLayout sendRow = new LinearLayout(this);
         sendRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -293,30 +286,27 @@ public class MainActivity extends Activity {
         messageInput.setHint("اكتب رسالتك...");
         messageInput.setTextColor(white);
         messageInput.setHintTextColor(Color.LTGRAY);
-        messageInput.setSingleLine(false);
-        messageInput.setMinHeight(50);
         messageInput.setInputType(
                 InputType.TYPE_CLASS_TEXT |
                 InputType.TYPE_TEXT_FLAG_MULTI_LINE
         );
 
-        sendRow.addView(messageInput, new LinearLayout.LayoutParams(
-                0, -2, 1
-        ));
+        sendRow.addView(messageInput,
+                new LinearLayout.LayoutParams(0, -2, 1));
 
-        Button send = makeButton("إرسال");
-        send.setOnClickListener(v -> sendMessage());
-        sendRow.addView(send);
+        Button sendButton = makeButton("إرسال");
+        sendButton.setOnClickListener(v -> sendMessage());
+        sendRow.addView(sendButton);
 
         root.addView(sendRow);
 
         messagesListener = db.collection("chats")
                 .document(chatId)
                 .collection("messages")
-                .orderBy("createdAt")
+                .orderBy("createdAt", Query.Direction.ASCENDING)
                 .addSnapshotListener((snapshots, error) -> {
                     if (error != null) {
-                        toast("تعذر تحميل الرسائل.");
+                        toast("تعذر تحميل الرسائل: " + error.getLocalizedMessage());
                         return;
                     }
 
@@ -334,7 +324,7 @@ public class MainActivity extends Activity {
                         bubble.setText(text);
                         bubble.setTextColor(white);
                         bubble.setTextSize(16);
-                        bubble.setPadding(12, 10, 12, 10);
+                        bubble.setPadding(14, 10, 14, 10);
 
                         GradientDrawable shape = new GradientDrawable();
                         shape.setColor(currentUid.equals(sender)
@@ -343,9 +333,8 @@ public class MainActivity extends Activity {
                         bubble.setBackground(shape);
 
                         LinearLayout.LayoutParams params =
-                                new LinearLayout.LayoutParams(
-                                        -2, -2
-                                );
+                                new LinearLayout.LayoutParams(-2, -2);
+
                         params.setMargins(0, 5, 0, 5);
                         params.gravity = currentUid.equals(sender)
                                 ? Gravity.END : Gravity.START;
@@ -353,8 +342,8 @@ public class MainActivity extends Activity {
                         messagesLayout.addView(bubble, params);
                     }
 
-                    scrollView.post(() ->
-                            scrollView.fullScroll(View.FOCUS_DOWN));
+                    messagesScroll.post(() ->
+                            messagesScroll.fullScroll(View.FOCUS_DOWN));
                 });
     }
 
@@ -391,7 +380,7 @@ public class MainActivity extends Activity {
                         toast("تعذر إرسال الرسالة: " + e.getLocalizedMessage()));
     }
 
-    private void removeChatListener() {
+    private void removeMessagesListener() {
         if (messagesListener != null) {
             messagesListener.remove();
             messagesListener = null;
@@ -405,7 +394,8 @@ public class MainActivity extends Activity {
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 16, 0, 16);
+        title.setPadding(0, 12, 0, 12);
+
         root.addView(title);
     }
 
@@ -416,6 +406,7 @@ public class MainActivity extends Activity {
         label.setTextSize(16);
         label.setGravity(Gravity.CENTER);
         label.setPadding(0, 8, 0, 12);
+
         root.addView(label);
     }
 
@@ -432,10 +423,12 @@ public class MainActivity extends Activity {
         shape.setColor(Color.rgb(35, 52, 44));
         shape.setCornerRadius(14);
         shape.setStroke(1, gold);
+
         edit.setBackground(shape);
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
+
         params.setMargins(0, 8, 0, 8);
         root.addView(edit, params);
 
@@ -448,7 +441,8 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
-        params.setMargins(0, 7, 0, 7);
+
+        params.setMargins(0, 6, 0, 6);
         root.addView(button, params);
     }
 
@@ -462,6 +456,7 @@ public class MainActivity extends Activity {
         button.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(gold)
         );
+
         return button;
     }
 
@@ -471,19 +466,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        removeChatListener();
-
-        if (profileListener != null) {
-            profileListener.remove();
-            profileListener = null;
-        }
-
-        if (auth != null && auth.getCurrentUser() != null) {
-            db.collection("users")
-                    .document(auth.getCurrentUser().getUid())
-                    .update("online", false);
-        }
-
+        removeMessagesListener();
         super.onDestroy();
     }
-}
+            }
