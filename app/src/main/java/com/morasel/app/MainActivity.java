@@ -50,18 +50,42 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // تهيئة Firebase قبل استخدام خدماته
-        FirebaseApp.initializeApp(this);
+        try {
+            FirebaseApp app = FirebaseApp.initializeApp(this);
 
-        auth = FirebaseAuth.getInstance();
-        db = FirebaseFirestore.getInstance();
+            if (app == null) {
+                showStartupError(
+                        "تعذر إعداد Firebase. تحقق من google-services.json"
+                );
+                return;
+            }
 
-        if (auth.getCurrentUser() != null) {
-            currentUid = auth.getCurrentUser().getUid();
-            loadMyProfile();
-        } else {
-            showPhoneScreen();
+            auth = FirebaseAuth.getInstance(app);
+            db = FirebaseFirestore.getInstance(app);
+
+            if (auth.getCurrentUser() != null) {
+                currentUid = auth.getCurrentUser().getUid();
+                loadMyProfile();
+            } else {
+                showPhoneScreen();
+            }
+
+        } catch (Exception e) {
+            showStartupError(
+                    "خطأ في تشغيل التطبيق: "
+                            + e.getClass().getSimpleName()
+                            + ": " + e.getMessage()
+            );
         }
+    }
+
+    private void showStartupError(String text) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(18);
+        view.setPadding(24, 32, 24, 32);
+        view.setTextColor(Color.RED);
+        setContentView(view);
     }
 
     private void setupScreen(String title) {
@@ -95,7 +119,10 @@ public class MainActivity extends Activity {
         content.addView(subtitle);
 
         scroll.addView(content);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        root.addView(
+                scroll,
+                new LinearLayout.LayoutParams(-1, 0, 1f)
+        );
 
         setContentView(root);
         root.setTag(content);
@@ -141,77 +168,122 @@ public class MainActivity extends Activity {
                 new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, 8, 0, 8);
         content().addView(b, lp);
-        b.setOnClickListener(v -> action.run());
+
+        b.setOnClickListener(v -> {
+            try {
+                action.run();
+            } catch (Exception e) {
+                message("حدث خطأ: "
+                        + e.getClass().getSimpleName()
+                        + " - " + e.getMessage());
+            }
+        });
     }
 
     private void message(String text) {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
     }
 
-    // تسجيل الدخول برقم الهاتف
+    // شاشة تسجيل الدخول برقم الهاتف
     private void showPhoneScreen() {
         setupScreen("تسجيل الدخول برقم الهاتف");
 
         TextView info = new TextView(this);
-        info.setText("أدخل رقم هاتفك الدولي ثم اطلب رمز التحقق.");
+        info.setText(
+                "أدخل رقم هاتفك الدولي ثم اطلب رمز التحقق عبر SMS."
+        );
         info.setTextColor(white);
         info.setTextSize(15);
         content().addView(info);
 
         phoneInput = input(
                 "رقم الهاتف مثال +9677XXXXXXXX",
-                InputType.TYPE_CLASS_PHONE);
+                InputType.TYPE_CLASS_PHONE
+        );
 
         codeInput = input(
                 "رمز التحقق SMS",
-                InputType.TYPE_CLASS_NUMBER);
+                InputType.TYPE_CLASS_NUMBER
+        );
 
         button("إرسال رمز التحقق", this::sendCode);
         button("تأكيد الرمز والدخول", this::verifyCode);
     }
 
+    // طلب رمز التحقق
     private void sendCode() {
-        String phone = phoneInput.getText().toString().trim();
-
-        if (!phone.startsWith("+") || phone.length() < 9) {
-            message("أدخل رقم الهاتف بالصيغة الدولية، مثل +9677XXXXXXXX");
+        if (auth == null) {
+            message("Firebase غير مهيأ. تحقق من إعدادات التطبيق.");
             return;
         }
 
-        PhoneAuthOptions options =
-                PhoneAuthOptions.newBuilder(auth)
-                        .setPhoneNumber(phone)
-                        .setTimeout(60L, TimeUnit.SECONDS)
-                        .setActivity(this)
-                        .setCallbacks(
-                                new PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+        if (phoneInput == null) {
+            message("حقل رقم الهاتف غير موجود.");
+            return;
+        }
 
-                            @Override
-                            public void onVerificationCompleted(
-                                    PhoneAuthCredential credential) {
-                                signInWithCredential(credential);
-                            }
+        String phone = phoneInput.getText().toString().trim();
 
-                            @Override
-                            public void onVerificationFailed(
-                                    FirebaseException e) {
-                                message("فشل التحقق من الهاتف: "
-                                        + e.getMessage());
-                            }
+        if (!phone.matches("^\\+[1-9][0-9]{7,14}$")) {
+            message("أدخل الرقم الدولي، مثال: +9677XXXXXXXX");
+            return;
+        }
 
-                            @Override
-                            public void onCodeSent(
-                                    String id,
-                                    PhoneAuthProvider.ForceResendingToken token) {
-                                verificationId = id;
-                                message("أُرسل الرمز. تحقق من رسائل الهاتف.");
-                            }
-                        })
-                        .build();
+        try {
+            PhoneAuthOptions options =
+                    PhoneAuthOptions.newBuilder(auth)
+                            .setPhoneNumber(phone)
+                            .setTimeout(60L, TimeUnit.SECONDS)
+                            .setActivity(this)
+                            .setCallbacks(
+                                    new PhoneAuthProvider
+                                            .OnVerificationStateChangedCallbacks() {
 
-        PhoneAuthProvider.verifyPhoneNumber(options);
+                                @Override
+                                public void onVerificationCompleted(
+                                        PhoneAuthCredential credential) {
+                                    signInWithCredential(credential);
+                                }
+
+                                @Override
+                                public void onVerificationFailed(
+                                        FirebaseException e) {
+                                    message(
+                                            "فشل التحقق: "
+                                                    + e.getClass()
+                                                    .getSimpleName()
+                                                    + ": "
+                                                    + e.getMessage()
+                                    );
+                                }
+
+                                @Override
+                                public void onCodeSent(
+                                        String id,
+                                        PhoneAuthProvider
+                                                .ForceResendingToken token) {
+                                    verificationId = id;
+                                    message(
+                                            "تم إرسال الرمز. تحقق من رسائل SMS."
+                                    );
+                                }
+                            })
+                            .build();
+
+            PhoneAuthProvider.verifyPhoneNumber(options);
+
+            message("جارٍ طلب رمز التحقق...");
+
+        } catch (Exception e) {
+            message(
+                    "تعذر طلب رمز التحقق: "
+                            + e.getClass().getSimpleName()
+                            + " - " + e.getMessage()
+            );
+        }
     }
 
+    // تأكيد رمز SMS
     private void verifyCode() {
         String code = codeInput.getText().toString().trim();
 
@@ -225,13 +297,24 @@ public class MainActivity extends Activity {
             return;
         }
 
-        PhoneAuthCredential credential =
-                PhoneAuthProvider.getCredential(verificationId, code);
+        try {
+            PhoneAuthCredential credential =
+                    PhoneAuthProvider.getCredential(
+                            verificationId,
+                            code
+                    );
 
-        signInWithCredential(credential);
+            signInWithCredential(credential);
+
+        } catch (Exception e) {
+            message("تعذر قراءة الرمز: " + e.getMessage());
+        }
     }
 
-    private void signInWithCredential(PhoneAuthCredential credential) {
+    // تسجيل الدخول بعد التحقق من الهاتف
+    private void signInWithCredential(
+            PhoneAuthCredential credential) {
+
         auth.signInWithCredential(credential)
                 .addOnSuccessListener(result -> {
                     if (auth.getCurrentUser() == null) {
@@ -239,15 +322,21 @@ public class MainActivity extends Activity {
                         return;
                     }
 
-                    currentUid = auth.getCurrentUser().getUid();
-                    currentPhone = auth.getCurrentUser().getPhoneNumber();
+                    currentUid =
+                            auth.getCurrentUser().getUid();
+
+                    currentPhone =
+                            auth.getCurrentUser().getPhoneNumber();
+
                     loadMyProfile();
                 })
                 .addOnFailureListener(e ->
-                        message("فشل تسجيل الدخول: " + e.getMessage()));
+                        message(
+                                "فشل تسجيل الدخول: " + e.getMessage()
+                        ));
     }
 
-    // تحميل الحساب أو إنشاء اسم المستخدم
+    // تحميل الحساب
     private void loadMyProfile() {
         if (auth.getCurrentUser() == null) {
             showPhoneScreen();
@@ -257,12 +346,15 @@ public class MainActivity extends Activity {
         currentUid = auth.getCurrentUser().getUid();
         currentPhone = auth.getCurrentUser().getPhoneNumber();
 
-        db.collection("users").document(currentUid).get()
+        db.collection("users")
+                .document(currentUid)
+                .get()
                 .addOnSuccessListener(doc -> {
                     if (doc.exists()) {
                         currentName = doc.getString("username");
 
-                        if (currentName == null || currentName.trim().isEmpty()) {
+                        if (currentName == null
+                                || currentName.trim().isEmpty()) {
                             showCreateProfile();
                         } else {
                             showHome();
@@ -272,19 +364,24 @@ public class MainActivity extends Activity {
                     }
                 })
                 .addOnFailureListener(e ->
-                        message("تعذر تحميل الحساب: " + e.getMessage()));
+                        message(
+                                "تعذر تحميل الحساب: " + e.getMessage()
+                        ));
     }
 
+    // إنشاء اسم المستخدم
     private void showCreateProfile() {
         setupScreen("إنشاء حساب جديد");
 
         nameInput = input(
                 "اكتب اسم المستخدم",
                 InputType.TYPE_CLASS_TEXT
-                        | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+                        | InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        );
 
         button("حفظ الحساب", () -> {
-            String name = nameInput.getText().toString().trim();
+            String name =
+                    nameInput.getText().toString().trim();
 
             if (name.isEmpty()) {
                 message("اكتب اسم المستخدم أولاً.");
@@ -298,14 +395,18 @@ public class MainActivity extends Activity {
             user.put("online", true);
             user.put("createdAt", FieldValue.serverTimestamp());
 
-            db.collection("users").document(currentUid)
+            db.collection("users")
+                    .document(currentUid)
                     .set(user, SetOptions.merge())
                     .addOnSuccessListener(v -> {
                         currentName = name;
                         showHome();
                     })
                     .addOnFailureListener(e ->
-                            message("تعذر حفظ الحساب: " + e.getMessage()));
+                            message(
+                                    "تعذر حفظ الحساب: "
+                                            + e.getMessage()
+                            ));
         });
     }
 
@@ -314,8 +415,10 @@ public class MainActivity extends Activity {
         setupScreen("مرحباً " + currentName);
 
         TextView profile = new TextView(this);
-        profile.setText("اسمك: " + currentName
-                + "\nرقمك: " + currentPhone);
+        profile.setText(
+                "اسمك: " + currentName
+                        + "\nرقمك: " + currentPhone
+        );
         profile.setTextColor(white);
         profile.setTextSize(16);
         profile.setPadding(0, 8, 0, 16);
@@ -323,7 +426,8 @@ public class MainActivity extends Activity {
 
         searchInput = input(
                 "رقم المستخدم الدولي",
-                InputType.TYPE_CLASS_PHONE);
+                InputType.TYPE_CLASS_PHONE
+        );
 
         button("بحث عن مستخدم", this::findUser);
 
@@ -334,16 +438,20 @@ public class MainActivity extends Activity {
             }
 
             auth.signOut();
+
             currentUid = "";
             currentPhone = "";
             currentName = "";
+            currentChatId = "";
+
             showPhoneScreen();
         });
     }
 
     // البحث عن مستخدم برقم الهاتف
     private void findUser() {
-        String phone = searchInput.getText().toString().trim();
+        String phone =
+                searchInput.getText().toString().trim();
 
         if (phone.isEmpty()) {
             message("أدخل رقم الهاتف الذي تريد البحث عنه.");
@@ -361,15 +469,20 @@ public class MainActivity extends Activity {
                 .get()
                 .addOnSuccessListener(result -> {
                     if (result.isEmpty()) {
-                        message("لم يتم العثور على مستخدم بهذا الرقم.");
+                        message(
+                                "لم يتم العثور على مستخدم بهذا الرقم."
+                        );
                         return;
                     }
 
-                    DocumentSnapshot user = result.getDocuments().get(0);
+                    DocumentSnapshot user =
+                            result.getDocuments().get(0);
+
                     otherUid = user.getId();
                     otherName = user.getString("username");
 
-                    if (otherName == null || otherName.isEmpty()) {
+                    if (otherName == null
+                            || otherName.isEmpty()) {
                         otherName = phone;
                     }
 
@@ -379,33 +492,43 @@ public class MainActivity extends Activity {
                         message("فشل البحث: " + e.getMessage()));
     }
 
+    // إنشاء محادثة أو فتح محادثة موجودة
     private void openOrCreateChat() {
         ArrayList<String> participants = new ArrayList<>();
         participants.add(currentUid);
         participants.add(otherUid);
         Collections.sort(participants);
 
-        currentChatId = participants.get(0) + "_" + participants.get(1);
+        currentChatId =
+                participants.get(0) + "_" + participants.get(1);
 
         Map<String, Object> chat = new HashMap<>();
         chat.put("participants", participants);
         chat.put("createdAt", FieldValue.serverTimestamp());
 
-        db.collection("chats").document(currentChatId).get()
+        db.collection("chats")
+                .document(currentChatId)
+                .get()
                 .addOnSuccessListener(doc -> {
                     if (doc.exists()) {
                         openChat();
                     } else {
-                        db.collection("chats").document(currentChatId)
+                        db.collection("chats")
+                                .document(currentChatId)
                                 .set(chat)
                                 .addOnSuccessListener(v -> openChat())
                                 .addOnFailureListener(e ->
-                                        message("تعذر إنشاء المحادثة: "
-                                                + e.getMessage()));
+                                        message(
+                                                "تعذر إنشاء المحادثة: "
+                                                        + e.getMessage()
+                                        ));
                     }
                 })
                 .addOnFailureListener(e ->
-                        message("تعذر فتح المحادثة: " + e.getMessage()));
+                        message(
+                                "تعذر فتح المحادثة: "
+                                        + e.getMessage()
+                        ));
     }
 
     // شاشة المحادثة
@@ -413,18 +536,23 @@ public class MainActivity extends Activity {
         setupScreen("المحادثة مع " + otherName);
 
         ScrollView scroll = new ScrollView(this);
+
         messagesLayout = new LinearLayout(this);
         messagesLayout.setOrientation(LinearLayout.VERTICAL);
         messagesLayout.setPadding(4, 4, 4, 4);
+
         scroll.addView(messagesLayout);
 
-        content().addView(scroll,
-                new LinearLayout.LayoutParams(-1, 0, 1f));
+        content().addView(
+                scroll,
+                new LinearLayout.LayoutParams(-1, 0, 1f)
+        );
 
         messageInput = input(
                 "اكتب رسالتك هنا",
                 InputType.TYPE_CLASS_TEXT
-                        | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+                        | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        );
 
         button("إرسال الرسالة", this::sendMessage);
         button("رجوع", this::backHome);
@@ -436,38 +564,57 @@ public class MainActivity extends Activity {
         messagesListener = db.collection("chats")
                 .document(currentChatId)
                 .collection("messages")
-                .orderBy("createdAt", Query.Direction.ASCENDING)
+                .orderBy(
+                        "createdAt",
+                        Query.Direction.ASCENDING
+                )
                 .addSnapshotListener((snapshot, error) -> {
                     if (error != null) {
-                        message("تعذر تحميل الرسائل: " + error.getMessage());
+                        message(
+                                "تعذر تحميل الرسائل: "
+                                        + error.getMessage()
+                        );
                         return;
                     }
 
-                    if (snapshot == null) return;
+                    if (snapshot == null
+                            || messagesLayout == null) {
+                        return;
+                    }
 
                     messagesLayout.removeAllViews();
 
-                    for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                    for (DocumentSnapshot doc :
+                            snapshot.getDocuments()) {
+
                         String text = doc.getString("text");
                         String sender = doc.getString("senderId");
 
+                        boolean mine = currentUid.equals(sender);
+
                         TextView bubble = new TextView(this);
                         bubble.setText(
-                                (currentUid.equals(sender) ? "أنت: " : otherName + ": ")
-                                        + (text == null ? "" : text));
+                                (mine ? "أنت: " : otherName + ": ")
+                                        + (text == null ? "" : text)
+                        );
                         bubble.setTextColor(white);
                         bubble.setTextSize(16);
                         bubble.setPadding(14, 10, 14, 10);
 
-                        GradientDrawable bg = new GradientDrawable();
-                        bg.setColor(currentUid.equals(sender)
-                                ? green : Color.rgb(55, 65, 58));
+                        GradientDrawable bg =
+                                new GradientDrawable();
+
+                        bg.setColor(
+                                mine ? green
+                                        : Color.rgb(55, 65, 58)
+                        );
                         bg.setCornerRadius(16);
                         bubble.setBackground(bg);
 
                         LinearLayout.LayoutParams lp =
                                 new LinearLayout.LayoutParams(-1, -2);
                         lp.setMargins(0, 5, 0, 5);
+
                         messagesLayout.addView(bubble, lp);
                     }
                 });
@@ -478,11 +625,14 @@ public class MainActivity extends Activity {
             messagesListener.remove();
             messagesListener = null;
         }
+
         showHome();
     }
 
+    // إرسال رسالة
     private void sendMessage() {
-        String text = messageInput.getText().toString().trim();
+        String text =
+                messageInput.getText().toString().trim();
 
         if (text.isEmpty()) {
             message("اكتب رسالة أولاً.");
@@ -499,7 +649,8 @@ public class MainActivity extends Activity {
         msg.put("senderId", currentUid);
         msg.put("createdAt", FieldValue.serverTimestamp());
 
-        db.collection("chats").document(currentChatId)
+        db.collection("chats")
+                .document(currentChatId)
                 .collection("messages")
                 .add(msg)
                 .addOnSuccessListener(ref -> {
@@ -507,16 +658,24 @@ public class MainActivity extends Activity {
 
                     Map<String, Object> update = new HashMap<>();
                     update.put("lastMessage", text);
-                    update.put("lastMessageAt",
-                            FieldValue.serverTimestamp());
+                    update.put(
+                            "lastMessageAt",
+                            FieldValue.serverTimestamp()
+                    );
 
-                    db.collection("chats").document(currentChatId)
+                    db.collection("chats")
+                            .document(currentChatId)
                             .update(update)
                             .addOnFailureListener(e ->
-                                    message("أُرسلت الرسالة، لكن تعذر تحديث آخر رسالة."));
+                                    message(
+                                            "أُرسلت الرسالة، لكن تعذر تحديث آخر رسالة."
+                                    ));
                 })
                 .addOnFailureListener(e ->
-                        message("فشل إرسال الرسالة: " + e.getMessage()));
+                        message(
+                                "فشل إرسال الرسالة: "
+                                        + e.getMessage()
+                        ));
     }
 
     @Override
@@ -525,6 +684,7 @@ public class MainActivity extends Activity {
             messagesListener.remove();
             messagesListener = null;
         }
+
         super.onDestroy();
     }
 }
