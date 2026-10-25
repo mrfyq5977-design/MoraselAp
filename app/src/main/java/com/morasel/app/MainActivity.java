@@ -132,7 +132,10 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setPadding(16, 12, 16, 10);
-        root.setBackground(gradientBackground());
+
+        // الخلفية المزخرفة الموجودة في drawable
+        root.setBackgroundResource(R.drawable.chat_wallpaper);
+
         setContentView(root);
     }
 
@@ -739,4 +742,4 @@ public class MainActivity extends Activity {
         removeMessageListener();
         super.onDestroy();
     }
-    }
+            }
