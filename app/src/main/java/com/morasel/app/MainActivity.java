@@ -11,9 +11,9 @@ import android.view.View;
 import android.widget.*;
 import android.text.InputType;
 
+import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseException;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException;
 import com.google.firebase.auth.PhoneAuthCredential;
 import com.google.firebase.auth.PhoneAuthOptions;
 import com.google.firebase.auth.PhoneAuthProvider;
@@ -26,6 +26,7 @@ public class MainActivity extends Activity {
 
     private FirebaseAuth auth;
     private FirebaseFirestore db;
+
     private String verificationId = "";
     private String currentUid = "";
     private String currentPhone = "";
@@ -35,7 +36,8 @@ public class MainActivity extends Activity {
     private String otherName = "";
 
     private LinearLayout root;
-    private EditText phoneInput, codeInput, nameInput, searchInput, messageInput;
+    private EditText phoneInput, codeInput, nameInput;
+    private EditText searchInput, messageInput;
     private LinearLayout messagesLayout;
     private ListenerRegistration messagesListener;
 
@@ -47,6 +49,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // تهيئة Firebase قبل استخدام خدماته
+        FirebaseApp.initializeApp(this);
 
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
@@ -90,8 +95,7 @@ public class MainActivity extends Activity {
         content.addView(subtitle);
 
         scroll.addView(content);
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                -1, 0, 1f));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         setContentView(root);
         root.setTag(content);
@@ -144,12 +148,12 @@ public class MainActivity extends Activity {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
     }
 
-    // 1 - تسجيل الدخول برقم الهاتف
+    // تسجيل الدخول برقم الهاتف
     private void showPhoneScreen() {
         setupScreen("تسجيل الدخول برقم الهاتف");
 
         TextView info = new TextView(this);
-        info.setText("أدخل رقم هاتفك مع مفتاح الدولة، ثم أرسل رمز التحقق.");
+        info.setText("أدخل رقم هاتفك الدولي ثم اطلب رمز التحقق.");
         info.setTextColor(white);
         info.setTextSize(15);
         content().addView(info);
@@ -170,7 +174,7 @@ public class MainActivity extends Activity {
         String phone = phoneInput.getText().toString().trim();
 
         if (!phone.startsWith("+") || phone.length() < 9) {
-            message("أدخل الرقم بصيغته الدولية، مثال +9677XXXXXXXX");
+            message("أدخل رقم الهاتف بالصيغة الدولية، مثل +9677XXXXXXXX");
             return;
         }
 
@@ -179,7 +183,8 @@ public class MainActivity extends Activity {
                         .setPhoneNumber(phone)
                         .setTimeout(60L, TimeUnit.SECONDS)
                         .setActivity(this)
-                        .setCallbacks(new PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                        .setCallbacks(
+                                new PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
 
                             @Override
                             public void onVerificationCompleted(
@@ -190,7 +195,8 @@ public class MainActivity extends Activity {
                             @Override
                             public void onVerificationFailed(
                                     FirebaseException e) {
-                                message("تعذر إرسال الرمز: " + e.getMessage());
+                                message("فشل التحقق من الهاتف: "
+                                        + e.getMessage());
                             }
 
                             @Override
@@ -198,7 +204,7 @@ public class MainActivity extends Activity {
                                     String id,
                                     PhoneAuthProvider.ForceResendingToken token) {
                                 verificationId = id;
-                                message("تم إرسال الرمز. تحقق من رسائل SMS.");
+                                message("أُرسل الرمز. تحقق من رسائل الهاتف.");
                             }
                         })
                         .build();
@@ -235,14 +241,13 @@ public class MainActivity extends Activity {
 
                     currentUid = auth.getCurrentUser().getUid();
                     currentPhone = auth.getCurrentUser().getPhoneNumber();
-
                     loadMyProfile();
                 })
                 .addOnFailureListener(e ->
-                        message("فشل التحقق: " + e.getMessage()));
+                        message("فشل تسجيل الدخول: " + e.getMessage()));
     }
 
-    // 2 - تحميل الملف الشخصي أو إنشاء اسم جديد
+    // تحميل الحساب أو إنشاء اسم المستخدم
     private void loadMyProfile() {
         if (auth.getCurrentUser() == null) {
             showPhoneScreen();
@@ -256,7 +261,8 @@ public class MainActivity extends Activity {
                 .addOnSuccessListener(doc -> {
                     if (doc.exists()) {
                         currentName = doc.getString("username");
-                        if (currentName == null || currentName.isEmpty()) {
+
+                        if (currentName == null || currentName.trim().isEmpty()) {
                             showCreateProfile();
                         } else {
                             showHome();
@@ -281,7 +287,7 @@ public class MainActivity extends Activity {
             String name = nameInput.getText().toString().trim();
 
             if (name.isEmpty()) {
-                message("اكتب اسم المستخدم.");
+                message("اكتب اسم المستخدم أولاً.");
                 return;
             }
 
@@ -303,7 +309,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    // 3 - الصفحة الرئيسية والبحث بالهاتف
+    // الصفحة الرئيسية
     private void showHome() {
         setupScreen("مرحباً " + currentName);
 
@@ -316,7 +322,7 @@ public class MainActivity extends Activity {
         content().addView(profile);
 
         searchInput = input(
-                "ابحث برقم الهاتف الدولي",
+                "رقم المستخدم الدولي",
                 InputType.TYPE_CLASS_PHONE);
 
         button("بحث عن مستخدم", this::findUser);
@@ -326,6 +332,7 @@ public class MainActivity extends Activity {
                 messagesListener.remove();
                 messagesListener = null;
             }
+
             auth.signOut();
             currentUid = "";
             currentPhone = "";
@@ -334,6 +341,7 @@ public class MainActivity extends Activity {
         });
     }
 
+    // البحث عن مستخدم برقم الهاتف
     private void findUser() {
         String phone = searchInput.getText().toString().trim();
 
@@ -361,7 +369,9 @@ public class MainActivity extends Activity {
                     otherUid = user.getId();
                     otherName = user.getString("username");
 
-                    if (otherName == null) otherName = phone;
+                    if (otherName == null || otherName.isEmpty()) {
+                        otherName = phone;
+                    }
 
                     openOrCreateChat();
                 })
@@ -398,7 +408,7 @@ public class MainActivity extends Activity {
                         message("تعذر فتح المحادثة: " + e.getMessage()));
     }
 
-    // 4 - شاشة المحادثة
+    // شاشة المحادثة
     private void openChat() {
         setupScreen("المحادثة مع " + otherName);
 
@@ -408,8 +418,8 @@ public class MainActivity extends Activity {
         messagesLayout.setPadding(4, 4, 4, 4);
         scroll.addView(messagesLayout);
 
-        content().addView(scroll, new LinearLayout.LayoutParams(
-                -1, 0, 1f));
+        content().addView(scroll,
+                new LinearLayout.LayoutParams(-1, 0, 1f));
 
         messageInput = input(
                 "اكتب رسالتك هنا",
@@ -417,7 +427,7 @@ public class MainActivity extends Activity {
                         | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
 
         button("إرسال الرسالة", this::sendMessage);
-        button("رجوع", this::showHome);
+        button("رجوع", this::backHome);
 
         if (messagesListener != null) {
             messagesListener.remove();
@@ -456,12 +466,19 @@ public class MainActivity extends Activity {
                         bubble.setBackground(bg);
 
                         LinearLayout.LayoutParams lp =
-                                new LinearLayout.LayoutParams(
-                                        -1, -2);
+                                new LinearLayout.LayoutParams(-1, -2);
                         lp.setMargins(0, 5, 0, 5);
                         messagesLayout.addView(bubble, lp);
                     }
                 });
+    }
+
+    private void backHome() {
+        if (messagesListener != null) {
+            messagesListener.remove();
+            messagesListener = null;
+        }
+        showHome();
     }
 
     private void sendMessage() {
@@ -494,7 +511,9 @@ public class MainActivity extends Activity {
                             FieldValue.serverTimestamp());
 
                     db.collection("chats").document(currentChatId)
-                            .update(update);
+                            .update(update)
+                            .addOnFailureListener(e ->
+                                    message("أُرسلت الرسالة، لكن تعذر تحديث آخر رسالة."));
                 })
                 .addOnFailureListener(e ->
                         message("فشل إرسال الرسالة: " + e.getMessage()));
