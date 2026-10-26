@@ -1,4 +1,3 @@
-
 name: Build Morasel APK
 
 on:
@@ -24,15 +23,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build debug APK with details
-        run: gradle assembleDebug --stacktrace --info
+      - name: Build debug APK
+        working-directory: .
+        run: |
+          gradle --version
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: MoraselAp-debug
