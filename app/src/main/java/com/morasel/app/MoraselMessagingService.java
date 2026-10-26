@@ -87,7 +87,7 @@ public class MoraselMessagingService extends FirebaseMessagingService {
         Notification notification = new NotificationCompat.Builder(
                 this, CHANNEL_ID
         )
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(android.R.drawable.ic_dialog_info) 
                 .setContentTitle(title)
                 .setContentText(body)
                 .setStyle(new NotificationCompat.BigTextStyle()
