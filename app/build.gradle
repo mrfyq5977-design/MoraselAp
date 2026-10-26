@@ -30,9 +30,9 @@ dependencies {
     // Firebase Firestore
     implementation 'com.google.firebase:firebase-firestore'
 
-    // Firebase Cloud Messaging - الإشعارات
+    // Firebase Cloud Messaging
     implementation 'com.google.firebase:firebase-messaging'
 
-    // AndroidX Core - أدوات الإشعارات
+    // AndroidX Core
     implementation 'androidx.core:core:1.15.0'
 }
