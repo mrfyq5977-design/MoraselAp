@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaPlayer;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -12,13 +13,13 @@ import android.widget.*;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.DocumentChange;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
 import com.google.firebase.firestore.Query;
 import com.google.firebase.firestore.SetOptions;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -32,7 +33,6 @@ public class MainActivity extends Activity {
 
     private LinearLayout root;
     private LinearLayout chatList;
-
     private EditText messageInput;
 
     private ListenerRegistration chatsListener;
@@ -43,6 +43,9 @@ public class MainActivity extends Activity {
     private String activeChat = "";
 
     private int screenVersion = 0;
+
+    private boolean firstMessagesSnapshot = true;
+    private boolean chatSoundEnabled = true;
 
     private final int BG = Color.rgb(17, 35, 28);
     private final int GREEN = Color.rgb(24, 104, 68);
@@ -65,6 +68,67 @@ public class MainActivity extends Activity {
 
         login();
     }
+
+    // =========================
+    // الأصوات
+    // =========================
+
+    private void playSound(int resourceId) {
+        MediaPlayer player = null;
+
+        try {
+            player = MediaPlayer.create(this, resourceId);
+
+            if (player == null) {
+                return;
+            }
+
+            MediaPlayer finalPlayer = player;
+
+            player.setOnCompletionListener(mp -> {
+                try {
+                    mp.release();
+                } catch (Exception ignored) {
+                }
+            });
+
+            player.setOnErrorListener((mp, what, extra) -> {
+                try {
+                    mp.release();
+                } catch (Exception ignored) {
+                }
+                return true;
+            });
+
+            player.start();
+
+        } catch (Exception e) {
+            if (player != null) {
+                try {
+                    player.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private void playSendSound() {
+        playSound(R.raw.send_message);
+    }
+
+    private void playReceiveSound() {
+        playSound(R.raw.receive_message);
+    }
+
+    private void playChatSound() {
+        if (chatSoundEnabled) {
+            playSound(R.raw.chat_sound);
+        }
+    }
+
+    // =========================
+    // تسجيل الدخول
+    // =========================
 
     private void login() {
         showLoading("جارٍ فتح مراسل...");
@@ -90,7 +154,7 @@ public class MainActivity extends Activity {
             })
             .addOnFailureListener(e -> {
                 showWelcome();
-                toast("تعذر الدخول. تحقق من اتصال الإنترنت وإعدادات Firebase.");
+                toast("تعذر الدخول. تحقق من الإنترنت وإعدادات Firebase.");
             });
     }
 
@@ -117,6 +181,10 @@ public class MainActivity extends Activity {
             });
     }
 
+    // =========================
+    // شاشة التحميل والترحيب
+    // =========================
+
     private void showLoading(String value) {
         root.removeAllViews();
 
@@ -136,6 +204,10 @@ public class MainActivity extends Activity {
 
         addButton("إعادة المحاولة", this::login);
     }
+
+    // =========================
+    // إنشاء الحساب
+    // =========================
 
     private void showCreateProfile() {
         closeAllListeners();
@@ -200,11 +272,16 @@ public class MainActivity extends Activity {
         });
     }
 
+    // =========================
+    // الشاشة الرئيسية
+    // =========================
+
     private void showHome() {
         closeAllListeners();
 
         activeChat = "";
         messageInput = null;
+        chatList = null;
         screenVersion++;
 
         root.removeAllViews();
@@ -245,8 +322,7 @@ public class MainActivity extends Activity {
                     String partnerUid = user.getString("uid");
                     String partnerName = user.getString("username");
 
-                    if (partnerUid == null
-                            || partnerUid.equals(uid)) {
+                    if (partnerUid == null || partnerUid.equals(uid)) {
                         toast("لا يمكنك مراسلة نفسك.");
                         return;
                     }
@@ -275,6 +351,10 @@ public class MainActivity extends Activity {
 
         listenChats();
     }
+
+    // =========================
+    // تحميل المحادثات
+    // =========================
 
     private void listenChats() {
         if (chatsListener != null) {
@@ -317,8 +397,7 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                for (DocumentSnapshot chat
-                        : snapshot.getDocuments()) {
+                for (DocumentSnapshot chat : snapshot.getDocuments()) {
 
                     List<String> participants =
                         (List<String>) chat.get("participants");
@@ -365,11 +444,7 @@ public class MainActivity extends Activity {
                             String finalName = otherName;
 
                             button.setOnClickListener(v ->
-                                openChat(
-                                    chatId,
-                                    otherUid,
-                                    finalName
-                                )
+                                openChat(chatId, otherUid, finalName)
                             );
 
                             chatList.addView(button);
@@ -377,6 +452,10 @@ public class MainActivity extends Activity {
                 }
             });
     }
+
+    // =========================
+    // إنشاء أو فتح محادثة
+    // =========================
 
     private void openOrCreateChat(
             String partnerUid,
@@ -396,10 +475,8 @@ public class MainActivity extends Activity {
         String chatId = first + "_" + second;
 
         Map<String, Object> chat = new HashMap<>();
-        chat.put("participants",
-            Arrays.asList(first, second));
-        chat.put("updatedAt",
-            FieldValue.serverTimestamp());
+        chat.put("participants", Arrays.asList(first, second));
+        chat.put("updatedAt", FieldValue.serverTimestamp());
 
         db.collection("chats")
             .document(chatId)
@@ -410,6 +487,10 @@ public class MainActivity extends Activity {
                 toast("تعذر فتح المحادثة. تحقق من صلاحيات Firestore."));
     }
 
+    // =========================
+    // شاشة المحادثة
+    // =========================
+
     private void openChat(
             String chatId,
             String partnerUid,
@@ -419,6 +500,7 @@ public class MainActivity extends Activity {
 
         activeChat = chatId;
         messageInput = null;
+        firstMessagesSnapshot = true;
 
         final int version = ++screenVersion;
 
@@ -438,6 +520,7 @@ public class MainActivity extends Activity {
         root.addView(scroll,
             new LinearLayout.LayoutParams(-1, 0, 1));
 
+        // صف كتابة الرسالة
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         bottom.setGravity(Gravity.CENTER_VERTICAL);
@@ -461,8 +544,19 @@ public class MainActivity extends Activity {
 
         send.setOnClickListener(v -> sendMessage());
 
-        root.addView(bottom);
+        // رفع صف الكتابة وزر الإرسال 20 بكسل تقريبًا
+        LinearLayout.LayoutParams bottomParams =
+            new LinearLayout.LayoutParams(-1, -2);
 
+        bottomParams.bottomMargin =
+            (int) (20 * getResources().getDisplayMetrics().density);
+
+        root.addView(bottom, bottomParams);
+
+        // نغمة عند فتح المحادثة
+        playChatSound();
+
+        // متابعة الرسائل
         messagesListener = db.collection("chats")
             .document(chatId)
             .collection("messages")
@@ -483,23 +577,44 @@ public class MainActivity extends Activity {
 
                 if (snapshot == null) return;
 
+                // لا نشغّل صوتًا عند تحميل الرسائل القديمة أول مرة
+                boolean incomingMessage = false;
+
+                if (!firstMessagesSnapshot) {
+                    for (DocumentChange change :
+                            snapshot.getDocumentChanges()) {
+
+                        if (change.getType() == DocumentChange.Type.ADDED) {
+                            String sender =
+                                change.getDocument().getString("senderId");
+
+                            if (sender != null && !uid.equals(sender)) {
+                                incomingMessage = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                firstMessagesSnapshot = false;
+
+                if (incomingMessage && chatSoundEnabled) {
+                    playReceiveSound();
+                }
+
                 messages.removeAllViews();
 
-                for (DocumentSnapshot doc
-                        : snapshot.getDocuments()) {
+                for (DocumentSnapshot doc : snapshot.getDocuments()) {
 
                     String body = doc.getString("text");
                     String sender = doc.getString("senderId");
 
                     if (body == null) continue;
 
-                    TextView bubble =
-                        makeText(body, 16, WHITE);
-
+                    TextView bubble = makeText(body, 16, WHITE);
                     bubble.setPadding(12, 10, 12, 10);
 
-                    GradientDrawable shape =
-                        new GradientDrawable();
+                    GradientDrawable shape = new GradientDrawable();
 
                     shape.setColor(uid.equals(sender)
                         ? GREEN
@@ -525,6 +640,10 @@ public class MainActivity extends Activity {
             });
     }
 
+    // =========================
+    // إرسال رسالة
+    // =========================
+
     private void sendMessage() {
         if (messageInput == null || activeChat.isEmpty()) {
             return;
@@ -545,8 +664,7 @@ public class MainActivity extends Activity {
         Map<String, Object> message = new HashMap<>();
         message.put("senderId", uid);
         message.put("text", body);
-        message.put("createdAt",
-            FieldValue.serverTimestamp());
+        message.put("createdAt", FieldValue.serverTimestamp());
 
         db.collection("chats")
             .document(chatId)
@@ -561,6 +679,9 @@ public class MainActivity extends Activity {
 
                 messageInput.setText("");
 
+                // صوت بعد نجاح الإرسال
+                playSendSound();
+
                 db.collection("chats")
                     .document(chatId)
                     .update(
@@ -571,6 +692,10 @@ public class MainActivity extends Activity {
             .addOnFailureListener(e ->
                 toast("تعذر إرسال الرسالة. تحقق من صلاحيات Firestore."));
     }
+
+    // =========================
+    // إغلاق مستمعي Firebase
+    // =========================
 
     private void stopChatListeners() {
         if (messagesListener != null) {
@@ -587,6 +712,10 @@ public class MainActivity extends Activity {
             chatsListener = null;
         }
     }
+
+    // =========================
+    // عناصر الواجهة
+    // =========================
 
     private void addHeading(String value) {
         TextView text = makeText(value, 27, GOLD);
@@ -635,9 +764,7 @@ public class MainActivity extends Activity {
         button.setText(value);
         button.setTextColor(BG);
 
-        GradientDrawable shape =
-            new GradientDrawable();
-
+        GradientDrawable shape = new GradientDrawable();
         shape.setColor(GOLD);
         shape.setCornerRadius(18);
 
@@ -680,4 +807,4 @@ public class MainActivity extends Activity {
 
         super.onDestroy();
     }
-            }
+                                           }
