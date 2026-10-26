@@ -81,7 +81,7 @@ public class MoraselMessagingService extends FirebaseMessagingService {
                 0,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT |
-                PendingIntent.FLAG_IMMUTABLE
+                        PendingIntent.FLAG_IMMUTABLE
         );
 
         android.app.Notification notification =
@@ -104,4 +104,4 @@ public class MoraselMessagingService extends FirebaseMessagingService {
                 notification
         );
     }
-                            }
+}
