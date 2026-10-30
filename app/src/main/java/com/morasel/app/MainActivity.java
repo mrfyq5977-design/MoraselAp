@@ -1005,8 +1005,15 @@ public class MainActivity extends Activity {
 
                                 toast("تم رفع الصوت وإرسال الرسالة.");
                             })
-                            .addOnFailureListener(e ->
-                                    toast("تم رفع الصوت، لكن فشل إرسال بياناته إلى Firebase."));
+                        .addOnFailureListener(e -> {
+    android.util.Log.e(
+            "Morasel",
+            "Audio message Firestore error",
+            e
+    );
+
+    toast("فشل حفظ الصوت: " + e.getMessage());
+}); 
                 });
 
             } catch (Exception e) {
