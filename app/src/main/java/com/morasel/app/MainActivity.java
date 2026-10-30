@@ -1,11 +1,15 @@
 package com.morasel.app;
 
+import android.Manifest;
 import android.app.Activity;
-import android.os.Bundle;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaPlayer;
+import android.media.MediaRecorder;
+import android.os.Build;
+import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -20,11 +24,27 @@ import com.google.firebase.firestore.ListenerRegistration;
 import com.google.firebase.firestore.Query;
 import com.google.firebase.firestore.SetOptions;
 
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.IOException;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLConnection;
+
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
@@ -34,6 +54,9 @@ public class MainActivity extends Activity {
     private LinearLayout root;
     private LinearLayout chatList;
     private EditText messageInput;
+    private LinearLayout messagesContainer;
+    private ScrollView messagesScroll;
+    private Button voiceButton;
 
     private ListenerRegistration chatsListener;
     private ListenerRegistration messagesListener;
@@ -46,6 +69,35 @@ public class MainActivity extends Activity {
 
     private boolean firstMessagesSnapshot = true;
     private boolean chatSoundEnabled = true;
+    private boolean isRecording = false;
+
+    private MediaRecorder recorder;
+    private File audioFile;
+    private MediaPlayer audioPlayer;
+
+    private final ExecutorService voiceExecutor =
+            Executors.newSingleThreadExecutor();
+
+    /*
+     * Dosya settings
+     *
+     * للتجربة فقط:
+     * ضع مفتاح الرفع في DOSYA_UPLOAD_KEY.
+     * ضع مفتاح القراءة في DOSYA_READ_KEY.
+     *
+     * لا تنشر APK يحتوي على مفاتيحك.
+     */
+    private static final String DOSYA_API =
+            "https://api.dosya.dev/api";
+
+    private static final String DOSYA_WORKSPACE =
+            "ws_vPZ6ow2qDd4mUQcg8OFgs";
+
+    private static final String DOSYA_UPLOAD_KEY =
+            "dos_xxabf4yMt7LJnYaLKYVkw3kHv1d72U4I";
+
+    private static final String DOSYA_READ_KEY =
+            "dos_zedIiRuTipA4AbjDpVegv3hk2MRBdw63";
 
     private final int BG = Color.rgb(17, 35, 28);
     private final int GREEN = Color.rgb(24, 104, 68);
@@ -69,9 +121,9 @@ public class MainActivity extends Activity {
         login();
     }
 
-    // =========================
-    // الأصوات
-    // =========================
+    // =====================================================
+    // الأصوات القصيرة الموجودة في موارد التطبيق
+    // =====================================================
 
     private void playSound(int resourceId) {
         MediaPlayer player = null;
@@ -79,11 +131,7 @@ public class MainActivity extends Activity {
         try {
             player = MediaPlayer.create(this, resourceId);
 
-            if (player == null) {
-                return;
-            }
-
-            MediaPlayer finalPlayer = player;
+            if (player == null) return;
 
             player.setOnCompletionListener(mp -> {
                 try {
@@ -126,9 +174,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    // =========================
+    // =====================================================
     // تسجيل الدخول
-    // =========================
+    // =====================================================
 
     private void login() {
         showLoading("جارٍ فتح مراسل...");
@@ -140,50 +188,50 @@ public class MainActivity extends Activity {
         }
 
         auth.signInAnonymously()
-            .addOnSuccessListener(result -> {
-                if (isFinishing() || isDestroyed()) return;
+                .addOnSuccessListener(result -> {
+                    if (isFinishing() || isDestroyed()) return;
 
-                if (result.getUser() == null) {
+                    if (result.getUser() == null) {
+                        showWelcome();
+                        toast("تعذر إنشاء جلسة الدخول.");
+                        return;
+                    }
+
+                    uid = result.getUser().getUid();
+                    loadProfile();
+                })
+                .addOnFailureListener(e -> {
                     showWelcome();
-                    toast("تعذر إنشاء جلسة الدخول.");
-                    return;
-                }
-
-                uid = result.getUser().getUid();
-                loadProfile();
-            })
-            .addOnFailureListener(e -> {
-                showWelcome();
-                toast("تعذر الدخول. تحقق من الإنترنت وإعدادات Firebase.");
-            });
+                    toast("تعذر الدخول. تحقق من إعدادات Firebase.");
+                });
     }
 
     private void loadProfile() {
         db.collection("users")
-            .document(uid)
-            .get()
-            .addOnSuccessListener(doc -> {
-                if (isFinishing() || isDestroyed()) return;
+                .document(uid)
+                .get()
+                .addOnSuccessListener(doc -> {
+                    if (isFinishing() || isDestroyed()) return;
 
-                String savedName = doc.getString("username");
+                    String savedName = doc.getString("username");
 
-                if (doc.exists() && savedName != null
-                        && !savedName.trim().isEmpty()) {
-                    username = savedName;
-                    showHome();
-                } else {
-                    showCreateProfile();
-                }
-            })
-            .addOnFailureListener(e -> {
-                showWelcome();
-                toast("تعذر تحميل الحساب. حاول مرة أخرى.");
-            });
+                    if (doc.exists() && savedName != null
+                            && !savedName.trim().isEmpty()) {
+                        username = savedName;
+                        showHome();
+                    } else {
+                        showCreateProfile();
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    showWelcome();
+                    toast("تعذر تحميل الحساب.");
+                });
     }
 
-    // =========================
+    // =====================================================
     // شاشة التحميل والترحيب
-    // =========================
+    // =====================================================
 
     private void showLoading(String value) {
         root.removeAllViews();
@@ -192,7 +240,7 @@ public class MainActivity extends Activity {
         text.setGravity(Gravity.CENTER);
 
         root.addView(text,
-            new LinearLayout.LayoutParams(-1, 0, 1));
+                new LinearLayout.LayoutParams(-1, 0, 1));
     }
 
     private void showWelcome() {
@@ -201,13 +249,12 @@ public class MainActivity extends Activity {
 
         addHeading("مراسل");
         addText("تواصل مع الآخرين بسهولة.");
-
         addButton("إعادة المحاولة", this::login);
     }
 
-    // =========================
+    // =====================================================
     // إنشاء الحساب
-    // =========================
+    // =====================================================
 
     private void showCreateProfile() {
         closeAllListeners();
@@ -217,13 +264,13 @@ public class MainActivity extends Activity {
         addText("اختر اسمًا ليتمكن الآخرون من العثور عليك.");
 
         EditText nameInput = addInput(
-            "اسم المستخدم",
-            InputType.TYPE_CLASS_TEXT
+                "اسم المستخدم",
+                InputType.TYPE_CLASS_TEXT
         );
 
         addButton("حفظ ومتابعة", () -> {
             String name = nameInput.getText()
-                .toString().trim();
+                    .toString().trim();
 
             if (name.length() < 3) {
                 toast("اسم المستخدم يجب أن يكون 3 أحرف على الأقل.");
@@ -235,46 +282,46 @@ public class MainActivity extends Activity {
             showLoading("جارٍ التحقق من الاسم...");
 
             db.collection("users")
-                .whereEqualTo("usernameLower", lower)
-                .get()
-                .addOnSuccessListener(found -> {
-                    if (isFinishing() || isDestroyed()) return;
+                    .whereEqualTo("usernameLower", lower)
+                    .get()
+                    .addOnSuccessListener(found -> {
+                        if (isFinishing() || isDestroyed()) return;
 
-                    if (!found.isEmpty()) {
-                        showCreateProfile();
-                        toast("الاسم مستخدم، اختر اسمًا آخر.");
-                        return;
-                    }
-
-                    Map<String, Object> user = new HashMap<>();
-                    user.put("uid", uid);
-                    user.put("username", name);
-                    user.put("usernameLower", lower);
-                    user.put("createdAt",
-                        FieldValue.serverTimestamp());
-
-                    db.collection("users")
-                        .document(uid)
-                        .set(user)
-                        .addOnSuccessListener(v -> {
-                            username = name;
-                            showHome();
-                        })
-                        .addOnFailureListener(e -> {
+                        if (!found.isEmpty()) {
                             showCreateProfile();
-                            toast("تعذر حفظ الحساب.");
-                        });
-                })
-                .addOnFailureListener(e -> {
-                    showCreateProfile();
-                    toast("تعذر التحقق من الاسم.");
-                });
+                            toast("الاسم مستخدم، اختر اسمًا آخر.");
+                            return;
+                        }
+
+                        Map<String, Object> user = new HashMap<>();
+                        user.put("uid", uid);
+                        user.put("username", name);
+                        user.put("usernameLower", lower);
+                        user.put("createdAt",
+                                FieldValue.serverTimestamp());
+
+                        db.collection("users")
+                                .document(uid)
+                                .set(user)
+                                .addOnSuccessListener(v -> {
+                                    username = name;
+                                    showHome();
+                                })
+                                .addOnFailureListener(e -> {
+                                    showCreateProfile();
+                                    toast("تعذر حفظ الحساب.");
+                                });
+                    })
+                    .addOnFailureListener(e -> {
+                        showCreateProfile();
+                        toast("تعذر التحقق من الاسم.");
+                    });
         });
     }
 
-    // =========================
+    // =====================================================
     // الشاشة الرئيسية
-    // =========================
+    // =====================================================
 
     private void showHome() {
         closeAllListeners();
@@ -282,6 +329,7 @@ public class MainActivity extends Activity {
         activeChat = "";
         messageInput = null;
         chatList = null;
+        messagesContainer = null;
         screenVersion++;
 
         root.removeAllViews();
@@ -290,14 +338,14 @@ public class MainActivity extends Activity {
         addText("مرحبًا، " + username);
 
         EditText search = addInput(
-            "🔍 ابحث باسم المستخدم",
-            InputType.TYPE_CLASS_TEXT
+                "ابحث باسم المستخدم",
+                InputType.TYPE_CLASS_TEXT
         );
 
         addButton("بحث عن مستخدم", () -> {
             String name = search.getText()
-                .toString().trim()
-                .toLowerCase(Locale.ROOT);
+                    .toString().trim()
+                    .toLowerCase(Locale.ROOT);
 
             if (name.isEmpty()) {
                 toast("اكتب اسم المستخدم.");
@@ -305,39 +353,39 @@ public class MainActivity extends Activity {
             }
 
             db.collection("users")
-                .whereEqualTo("usernameLower", name)
-                .limit(1)
-                .get()
-                .addOnSuccessListener(result -> {
-                    if (isFinishing() || isDestroyed()) return;
+                    .whereEqualTo("usernameLower", name)
+                    .limit(1)
+                    .get()
+                    .addOnSuccessListener(result -> {
+                        if (isFinishing() || isDestroyed()) return;
 
-                    if (result.isEmpty()) {
-                        toast("لم يتم العثور على المستخدم.");
-                        return;
-                    }
+                        if (result.isEmpty()) {
+                            toast("لم يتم العثور على المستخدم.");
+                            return;
+                        }
 
-                    DocumentSnapshot user =
-                        result.getDocuments().get(0);
+                        DocumentSnapshot user =
+                                result.getDocuments().get(0);
 
-                    String partnerUid = user.getString("uid");
-                    String partnerName = user.getString("username");
+                        String partnerUid = user.getString("uid");
+                        String partnerName = user.getString("username");
 
-                    if (partnerUid == null || partnerUid.equals(uid)) {
-                        toast("لا يمكنك مراسلة نفسك.");
-                        return;
-                    }
+                        if (partnerUid == null || partnerUid.equals(uid)) {
+                            toast("لا يمكنك مراسلة نفسك.");
+                            return;
+                        }
 
-                    if (partnerName == null) {
-                        partnerName = "مستخدم";
-                    }
+                        if (partnerName == null) {
+                            partnerName = "مستخدم";
+                        }
 
-                    openOrCreateChat(partnerUid, partnerName);
-                })
-                .addOnFailureListener(e ->
-                    toast("فشل البحث. تحقق من اتصال الإنترنت."));
+                        openOrCreateChat(partnerUid, partnerName);
+                    })
+                    .addOnFailureListener(e ->
+                            toast("فشل البحث. تحقق من الإنترنت."));
         });
 
-        addText("💬 محادثاتك");
+        addText("محادثاتك");
 
         ScrollView scroll = new ScrollView(this);
 
@@ -347,14 +395,14 @@ public class MainActivity extends Activity {
         scroll.addView(chatList);
 
         root.addView(scroll,
-            new LinearLayout.LayoutParams(-1, 0, 1));
+                new LinearLayout.LayoutParams(-1, 0, 1));
 
         listenChats();
     }
 
-    // =========================
+    // =====================================================
     // تحميل المحادثات
-    // =========================
+    // =====================================================
 
     private void listenChats() {
         if (chatsListener != null) {
@@ -365,97 +413,95 @@ public class MainActivity extends Activity {
         final int version = screenVersion;
 
         chatsListener = db.collection("chats")
-            .whereArrayContains("participants", uid)
-            .addSnapshotListener((snapshot, error) -> {
+                .whereArrayContains("participants", uid)
+                .addSnapshotListener((snapshot, error) -> {
 
-                if (version != screenVersion
-                        || chatList == null
-                        || isFinishing()
-                        || isDestroyed()) {
-                    return;
-                }
-
-                if (error != null) {
-                    toast("تعذر تحميل المحادثات.");
-                    return;
-                }
-
-                if (snapshot == null) return;
-
-                chatList.removeAllViews();
-
-                if (snapshot.isEmpty()) {
-                    TextView empty = makeText(
-                        "لا توجد محادثات بعد.",
-                        16,
-                        WHITE
-                    );
-
-                    empty.setGravity(Gravity.CENTER);
-                    empty.setPadding(8, 20, 8, 20);
-                    chatList.addView(empty);
-                    return;
-                }
-
-                for (DocumentSnapshot chat : snapshot.getDocuments()) {
-
-                    List<String> participants =
-                        (List<String>) chat.get("participants");
-
-                    if (participants == null) continue;
-
-                    String partnerUid = null;
-
-                    for (String participant : participants) {
-                        if (!uid.equals(participant)) {
-                            partnerUid = participant;
-                            break;
-                        }
+                    if (version != screenVersion
+                            || chatList == null
+                            || isFinishing()
+                            || isDestroyed()) {
+                        return;
                     }
 
-                    if (partnerUid == null) continue;
+                    if (error != null) {
+                        toast("تعذر تحميل المحادثات.");
+                        return;
+                    }
 
-                    String otherUid = partnerUid;
-                    String chatId = chat.getId();
+                    if (snapshot == null) return;
 
-                    db.collection("users")
-                        .document(otherUid)
-                        .get()
-                        .addOnSuccessListener(user -> {
+                    chatList.removeAllViews();
 
-                            if (version != screenVersion
-                                    || chatList == null
-                                    || isFinishing()
-                                    || isDestroyed()) {
-                                return;
+                    if (snapshot.isEmpty()) {
+                        TextView empty = makeText(
+                                "لا توجد محادثات بعد.",
+                                16,
+                                WHITE
+                        );
+
+                        empty.setGravity(Gravity.CENTER);
+                        empty.setPadding(8, 20, 8, 20);
+                        chatList.addView(empty);
+                        return;
+                    }
+
+                    for (DocumentSnapshot chat : snapshot.getDocuments()) {
+                        List<String> participants =
+                                (List<String>) chat.get("participants");
+
+                        if (participants == null) continue;
+
+                        String partnerUid = null;
+
+                        for (String participant : participants) {
+                            if (!uid.equals(participant)) {
+                                partnerUid = participant;
+                                break;
                             }
+                        }
 
-                            String otherName =
-                                user.getString("username");
+                        if (partnerUid == null) continue;
 
-                            if (otherName == null
-                                    || otherName.trim().isEmpty()) {
-                                otherName = "مستخدم";
-                            }
+                        String otherUid = partnerUid;
+                        String chatId = chat.getId();
 
-                            Button button =
-                                makeButton("💬  " + otherName);
+                        db.collection("users")
+                                .document(otherUid)
+                                .get()
+                                .addOnSuccessListener(user -> {
 
-                            String finalName = otherName;
+                                    if (version != screenVersion
+                                            || chatList == null
+                                            || isFinishing()
+                                            || isDestroyed()) {
+                                        return;
+                                    }
 
-                            button.setOnClickListener(v ->
-                                openChat(chatId, otherUid, finalName)
-                            );
+                                    String otherName =
+                                            user.getString("username");
 
-                            chatList.addView(button);
-                        });
-                }
-            });
+                                    if (otherName == null
+                                            || otherName.trim().isEmpty()) {
+                                        otherName = "مستخدم";
+                                    }
+
+                                    Button button =
+                                            makeButton("💬  " + otherName);
+
+                                    String finalName = otherName;
+
+                                    button.setOnClickListener(v ->
+                                            openChat(chatId, otherUid, finalName));
+
+                                    chatList.addView(button);
+                                });
+                    }
+                });
     }
 
-    // =========================
+    // =====================================================
     // إنشاء أو فتح محادثة
-    // =========================
+    // =====================================================
 
     private void openOrCreateChat(
             String partnerUid,
@@ -479,17 +525,17 @@ public class MainActivity extends Activity {
         chat.put("updatedAt", FieldValue.serverTimestamp());
 
         db.collection("chats")
-            .document(chatId)
-            .set(chat, SetOptions.merge())
-            .addOnSuccessListener(v ->
-                openChat(chatId, partnerUid, partnerName))
-            .addOnFailureListener(e ->
-                toast("تعذر فتح المحادثة. تحقق من صلاحيات Firestore."));
+                .document(chatId)
+                .set(chat, SetOptions.merge())
+                .addOnSuccessListener(v ->
+                        openChat(chatId, partnerUid, partnerName))
+                .addOnFailureListener(e ->
+                        toast("تعذر فتح المحادثة. تحقق من صلاحيات Firestore."));
     }
 
-    // =========================
+    // =====================================================
     // شاشة المحادثة
-    // =========================
+    // =====================================================
 
     private void openChat(
             String chatId,
@@ -506,24 +552,27 @@ public class MainActivity extends Activity {
 
         root.removeAllViews();
 
-        addHeading("💬 " + partnerName);
-        addButton("← رجوع", this::showHome);
+        addHeading("محادثة: " + partnerName);
+        addButton("رجوع", this::showHome);
 
-        ScrollView scroll = new ScrollView(this);
+        messagesScroll = new ScrollView(this);
 
-        LinearLayout messages = new LinearLayout(this);
-        messages.setOrientation(LinearLayout.VERTICAL);
-        messages.setPadding(4, 4, 4, 4);
+        messagesContainer = new LinearLayout(this);
+        messagesContainer.setOrientation(LinearLayout.VERTICAL);
+        messagesContainer.setPadding(4, 4, 4, 4);
 
-        scroll.addView(messages);
+        messagesScroll.addView(messagesContainer);
 
-        root.addView(scroll,
-            new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(messagesScroll,
+                new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // صف كتابة الرسالة
         LinearLayout bottom = new LinearLayout(this);
-        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setOrientation(LinearLayout.VERTICAL);
         bottom.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout textRow = new LinearLayout(this);
+        textRow.setOrientation(LinearLayout.HORIZONTAL);
+        textRow.setGravity(Gravity.CENTER_VERTICAL);
 
         messageInput = new EditText(this);
         messageInput.setHint("اكتب رسالتك...");
@@ -532,117 +581,624 @@ public class MainActivity extends Activity {
         messageInput.setSingleLine(false);
         messageInput.setMaxLines(4);
         messageInput.setInputType(
-            InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_FLAG_MULTI_LINE
         );
 
-        bottom.addView(messageInput,
-            new LinearLayout.LayoutParams(0, -2, 1));
+        textRow.addView(messageInput,
+                new LinearLayout.LayoutParams(0, -2, 1));
 
         Button send = makeButton("إرسال");
-        bottom.addView(send);
+        textRow.addView(send);
 
         send.setOnClickListener(v -> sendMessage());
 
-        // رفع صف الكتابة وزر الإرسال 20 بكسل تقريبًا
+        bottom.addView(textRow);
+
+        voiceButton = makeButton("🎙️ بدء تسجيل الصوت");
+        bottom.addView(voiceButton,
+                new LinearLayout.LayoutParams(-1, -2));
+
+        voiceButton.setOnClickListener(v -> {
+            if (isRecording) {
+                stopVoiceRecording();
+            } else {
+                startVoiceRecording();
+            }
+        });
+
         LinearLayout.LayoutParams bottomParams =
-            new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(-1, -2);
 
         bottomParams.bottomMargin =
-            (int) (20 * getResources().getDisplayMetrics().density);
+                (int) (8 * getResources().getDisplayMetrics().density);
 
         root.addView(bottom, bottomParams);
 
-        // نغمة عند فتح المحادثة
         playChatSound();
 
-        // متابعة الرسائل
         messagesListener = db.collection("chats")
-            .document(chatId)
-            .collection("messages")
-            .orderBy("createdAt", Query.Direction.ASCENDING)
-            .addSnapshotListener((snapshot, error) -> {
+                .document(chatId)
+                .collection("messages")
+                .orderBy("createdAt", Query.Direction.ASCENDING)
+                .addSnapshotListener((snapshot, error) -> {
 
-                if (version != screenVersion
-                        || !chatId.equals(activeChat)
-                        || isFinishing()
-                        || isDestroyed()) {
-                    return;
-                }
+                    if (version != screenVersion
+                            || !chatId.equals(activeChat)
+                            || isFinishing()
+                            || isDestroyed()) {
+                        return;
+                    }
 
-                if (error != null) {
-                    toast("تعذر تحميل الرسائل. تحقق من صلاحيات Firestore.");
-                    return;
-                }
+                    if (error != null) {
+                        toast("تعذر تحميل الرسائل.");
+                        return;
+                    }
 
-                if (snapshot == null) return;
+                    if (snapshot == null) return;
 
-                // لا نشغّل صوتًا عند تحميل الرسائل القديمة أول مرة
-                boolean incomingMessage = false;
+                    boolean incomingMessage = false;
 
-                if (!firstMessagesSnapshot) {
-                    for (DocumentChange change :
-                            snapshot.getDocumentChanges()) {
+                    if (!firstMessagesSnapshot) {
+                        for (DocumentChange change :
+                                snapshot.getDocumentChanges()) {
 
-                        if (change.getType() == DocumentChange.Type.ADDED) {
-                            String sender =
-                                change.getDocument().getString("senderId");
+                            if (change.getType()
+                                    == DocumentChange.Type.ADDED) {
 
-                            if (sender != null && !uid.equals(sender)) {
-                                incomingMessage = true;
-                                break;
+                                String sender =
+                                        change.getDocument()
+                                                .getString("senderId");
+
+                                if (sender != null && !uid.equals(sender)) {
+                                    incomingMessage = true;
+                                    break;
+                                }
                             }
                         }
                     }
-                }
 
-                firstMessagesSnapshot = false;
+                    firstMessagesSnapshot = false;
 
-                if (incomingMessage && chatSoundEnabled) {
-                    playReceiveSound();
-                }
+                    if (incomingMessage && chatSoundEnabled) {
+                        playReceiveSound();
+                    }
 
-                messages.removeAllViews();
+                    messagesContainer.removeAllViews();
 
-                for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                    for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                        String sender = doc.getString("senderId");
+                        String type = doc.getString("type");
+                        String body = doc.getString("text");
 
-                    String body = doc.getString("text");
-                    String sender = doc.getString("senderId");
+                        boolean mine = uid.equals(sender);
 
-                    if (body == null) continue;
+                        if ("audio".equals(type)) {
+                            String fileId = doc.getString("audioFileId");
 
-                    TextView bubble = makeText(body, 16, WHITE);
-                    bubble.setPadding(12, 10, 12, 10);
+                            if (fileId == null || fileId.trim().isEmpty()) {
+                                continue;
+                            }
 
-                    GradientDrawable shape = new GradientDrawable();
+                            Button play = makeButton(
+                                    mine ? "▶️ تشغيل صوتي" : "▶️ تشغيل الرسالة الصوتية"
+                            );
 
-                    shape.setColor(uid.equals(sender)
-                        ? GREEN
-                        : Color.rgb(52, 65, 59));
+                            LinearLayout.LayoutParams params =
+                                    new LinearLayout.LayoutParams(-2, -2);
 
-                    shape.setCornerRadius(16);
-                    bubble.setBackground(shape);
+                            params.setMargins(0, 5, 0, 5);
+                            params.gravity = mine
+                                    ? Gravity.END
+                                    : Gravity.START;
 
-                    LinearLayout.LayoutParams params =
-                        new LinearLayout.LayoutParams(-2, -2);
+                            messagesContainer.addView(play, params);
 
-                    params.setMargins(0, 5, 0, 5);
+                            play.setOnClickListener(v ->
+                                    downloadAndPlayAudio(fileId));
 
-                    params.gravity = uid.equals(sender)
-                        ? Gravity.END
-                        : Gravity.START;
+                        } else if (body != null) {
+                            TextView bubble = makeText(body, 16, WHITE);
+                            bubble.setPadding(12, 10, 12, 10);
 
-                    messages.addView(bubble, params);
-                }
+                            GradientDrawable shape = new GradientDrawable();
+                            shape.setColor(mine
+                                    ? GREEN
+                                    : Color.rgb(52, 65, 59));
+                            shape.setCornerRadius(16);
+                            bubble.setBackground(shape);
 
-                scroll.post(() ->
-                    scroll.fullScroll(View.FOCUS_DOWN));
-            });
+                            LinearLayout.LayoutParams params =
+                                    new LinearLayout.LayoutParams(-2, -2);
+
+                            params.setMargins(0, 5, 0, 5);
+                            params.gravity = mine
+                                    ? Gravity.END
+                                    : Gravity.START;
+
+                            messagesContainer.addView(bubble, params);
+                        }
+                    }
+
+                    messagesScroll.post(() ->
+                            messagesScroll.fullScroll(View.FOCUS_DOWN));
+                });
     }
 
-    // =========================
-    // إرسال رسالة
-    // =========================
+    // =====================================================
+    // تسجيل الصوت
+    // =====================================================
+
+    private void startVoiceRecording() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+
+            requestPermissions(
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    501
+            );
+            return;
+        }
+
+        try {
+            File dir = getExternalFilesDir("voice");
+
+            if (dir == null) {
+                toast("تعذر الوصول إلى مجلد التسجيل.");
+                return;
+            }
+
+            if (!dir.exists() && !dir.mkdirs()) {
+                toast("تعذر إنشاء مجلد التسجيل.");
+                return;
+            }
+
+            audioFile = new File(
+                    dir,
+                    "voice_" + System.currentTimeMillis() + ".m4a"
+            );
+
+            if (Build.VERSION.SDK_INT >= 31) {
+                recorder = new MediaRecorder(this);
+            } else {
+                recorder = new MediaRecorder();
+            }
+
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            recorder.setOutputFile(audioFile.getAbsolutePath());
+
+            recorder.prepare();
+            recorder.start();
+
+            isRecording = true;
+
+            if (voiceButton != null) {
+                voiceButton.setText("⏹️ إيقاف التسجيل وإرسال");
+            }
+
+            toast("جارٍ تسجيل الصوت...");
+
+        } catch (Exception e) {
+            isRecording = false;
+            releaseRecorder();
+            toast("تعذر بدء تسجيل الصوت.");
+        }
+    }
+
+    private void stopVoiceRecording() {
+        if (!isRecording || recorder == null) return;
+
+        try {
+            recorder.stop();
+            isRecording = false;
+            releaseRecorder();
+
+            if (voiceButton != null) {
+                voiceButton.setText("🎙️ بدء تسجيل الصوت");
+            }
+
+            if (audioFile == null || !audioFile.exists()
+                    || audioFile.length() == 0) {
+                toast("ملف الصوت فارغ.");
+                return;
+            }
+
+            toast("جارٍ رفع الصوت إلى Dosya...");
+            uploadVoiceAndSend(audioFile);
+
+        } catch (RuntimeException e) {
+            isRecording = false;
+            releaseRecorder();
+
+            if (voiceButton != null) {
+                voiceButton.setText("🎙️ بدء تسجيل الصوت");
+            }
+
+            toast("التسجيل قصير جدًا أو لم يكتمل.");
+        }
+    }
+
+    private void releaseRecorder() {
+        if (recorder != null) {
+            try {
+                recorder.reset();
+            } catch (Exception ignored) {
+            }
+
+            try {
+                recorder.release();
+            } catch (Exception ignored) {
+            }
+
+            recorder = null;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] grantResults) {
+
+        super.onRequestPermissionsResult(
+                requestCode, permissions, grantResults);
+
+        if (requestCode == 501) {
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startVoiceRecording();
+            } else {
+                toast("يجب السماح باستخدام الميكروفون لتسجيل الصوت.");
+            }
+        }
+    }
+
+    // =====================================================
+    // رفع التسجيل إلى Dosya ثم حفظ الرسالة في Firebase
+    // =====================================================
+
+    private void uploadVoiceAndSend(File file) {
+        if (file == null || !file.exists()) {
+            toast("ملف الصوت غير موجود.");
+            return;
+        }
+
+        final String chatId = activeChat;
+        final String senderId = uid;
+
+        if (chatId.isEmpty() || senderId.isEmpty()) {
+            toast("افتح محادثة أولًا.");
+            return;
+        }
+
+        voiceExecutor.execute(() -> {
+            HttpURLConnection conn = null;
+
+            try {
+                if (DOSYA_UPLOAD_KEY.equals("PUT_UPLOAD_KEY_HERE")
+                        || DOSYA_UPLOAD_KEY.trim().isEmpty()) {
+                    throw new IOException(
+                            "أدخل مفتاح Dosya للرفع في DOSYA_UPLOAD_KEY.");
+                }
+
+                URL initUrl = new URL(DOSYA_API + "/upload/init");
+                conn = (HttpURLConnection) initUrl.openConnection();
+
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(30000);
+                conn.setDoOutput(true);
+
+                conn.setRequestProperty(
+                        "Authorization", "Bearer " + DOSYA_UPLOAD_KEY);
+                conn.setRequestProperty(
+                        "Content-Type", "application/json");
+
+                JSONObject init = new JSONObject();
+                init.put("file_name", file.getName());
+                init.put("file_size", file.length());
+                init.put("workspace_id", DOSYA_WORKSPACE);
+                init.put("mime_type", "audio/mp4");
+
+                try (OutputStream out = conn.getOutputStream()) {
+                    out.write(init.toString().getBytes("UTF-8"));
+                }
+
+                int status = conn.getResponseCode();
+                String initResponse = readConnection(conn);
+
+                if (status < 200 || status >= 300) {
+                    throw new IOException(
+                            "فشل بدء الرفع إلى Dosya: " + initResponse);
+                }
+
+                JSONObject initResult = new JSONObject(initResponse);
+
+                if (!initResult.optBoolean("ok", false)) {
+                    throw new IOException(
+                            initResult.optString("error", "فشل بدء الرفع."));
+                }
+
+                String uploadPath = initResult.getString("upload_url");
+
+                URL uploadUrl;
+
+                if (uploadPath.startsWith("http://")
+                        || uploadPath.startsWith("https://")) {
+                    uploadUrl = new URL(uploadPath);
+                } else {
+                    uploadUrl = new URL(
+                            "https://api.dosya.dev" + uploadPath);
+                }
+
+                conn.disconnect();
+
+                conn = (HttpURLConnection) uploadUrl.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(60000);
+                conn.setDoOutput(true);
+
+                conn.setRequestProperty(
+                        "Authorization", "Bearer " + DOSYA_UPLOAD_KEY);
+                conn.setRequestProperty(
+                        "Content-Type", "application/octet-stream");
+
+                conn.setFixedLengthStreamingMode(file.length());
+
+                try (InputStream in = new FileInputStream(file);
+                     OutputStream out = conn.getOutputStream()) {
+
+                    byte[] buffer = new byte[8192];
+                    int count;
+
+                    while ((count = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, count);
+                    }
+                }
+
+                status = conn.getResponseCode();
+                String uploadResponse = readConnection(conn);
+
+                if (status < 200 || status >= 300) {
+                    throw new IOException(
+                            "فشل رفع الملف: " + uploadResponse);
+                }
+
+                JSONObject uploadResult =
+                        new JSONObject(uploadResponse);
+
+                if (!uploadResult.optBoolean("ok", false)) {
+                    throw new IOException("Dosya لم يؤكد نجاح الرفع.");
+                }
+
+                JSONObject uploadedFile =
+                        uploadResult.getJSONObject("file");
+
+                String fileId = uploadedFile.getString("id");
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+
+                    Map<String, Object> message = new HashMap<>();
+                    message.put("senderId", senderId);
+                    message.put("type", "audio");
+                    message.put("audioFileId", fileId);
+                    message.put("createdAt",
+                            FieldValue.serverTimestamp());
+
+                    db.collection("chats")
+                            .document(chatId)
+                            .collection("messages")
+                            .add(message)
+                            .addOnSuccessListener(ref -> {
+                                playSendSound();
+
+                                db.collection("chats")
+                                        .document(chatId)
+                                        .update(
+                                                "updatedAt",
+                                                FieldValue.serverTimestamp()
+                                        );
+
+                                toast("تم رفع الصوت وإرسال الرسالة.");
+                            })
+                            .addOnFailureListener(e ->
+                                    toast("تم رفع الصوت، لكن فشل إرسال بياناته إلى Firebase."));
+                });
+
+            } catch (Exception e) {
+                String message = e.getMessage();
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+
+                    toast("تعذر رفع الصوت: "
+                            + (message == null ? "خطأ غير معروف" : message));
+                });
+
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        });
+    }
+
+    // =====================================================
+    // تنزيل الصوت من Dosya وتشغيله
+    // =====================================================
+
+    private void downloadAndPlayAudio(String fileId) {
+        if (DOSYA_READ_KEY.equals("PUT_READ_KEY_HERE")
+                || DOSYA_READ_KEY.trim().isEmpty()) {
+            toast("أدخل مفتاح القراءة في DOSYA_READ_KEY.");
+            return;
+        }
+
+        toast("جارٍ تنزيل الرسالة الصوتية...");
+
+        voiceExecutor.execute(() -> {
+            HttpURLConnection conn = null;
+
+            try {
+                URL url = new URL(
+                        DOSYA_API + "/files/" + fileId + "/download");
+
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(60000);
+
+                conn.setInstanceFollowRedirects(false);
+                conn.setRequestProperty(
+                        "Authorization", "Bearer " + DOSYA_READ_KEY);
+
+                int status = conn.getResponseCode();
+
+                String downloadUrl = conn.getHeaderField("Location");
+
+                if (status != HttpURLConnection.HTTP_MOVED_TEMP
+                        && status != HttpURLConnection.HTTP_MOVED_PERM
+                        && status != 307
+                        && status != 308) {
+
+                    String error = readConnection(conn);
+                    throw new IOException(
+                            "تعذر الحصول على رابط الصوت: " + error);
+                }
+
+                if (downloadUrl == null || downloadUrl.trim().isEmpty()) {
+                    throw new IOException("لم يرجع Dosya رابط التنزيل.");
+                }
+
+                conn.disconnect();
+                conn = null;
+
+                URL signedUrl = new URL(downloadUrl);
+                URLConnection downloadConnection =
+                        signedUrl.openConnection();
+
+                downloadConnection.setConnectTimeout(20000);
+                downloadConnection.setReadTimeout(60000);
+
+                File cacheFile = File.createTempFile(
+                        "morasel_voice_", ".m4a", getCacheDir());
+
+                try (InputStream in =
+                             downloadConnection.getInputStream();
+                     FileOutputStream out =
+                             new FileOutputStream(cacheFile)) {
+
+                    byte[] buffer = new byte[8192];
+                    int count;
+
+                    while ((count = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, count);
+                    }
+                }
+
+                runOnUiThread(() -> playAudioFile(cacheFile));
+
+            } catch (Exception e) {
+                String error = e.getMessage();
+
+                runOnUiThread(() ->
+                        toast("تعذر تشغيل الصوت: "
+                                + (error == null ? "خطأ غير معروف" : error)));
+
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        });
+    }
+
+    private void playAudioFile(File file) {
+        stopAudioPlayer();
+
+        try {
+            audioPlayer = new MediaPlayer();
+
+            audioPlayer.setDataSource(file.getAbsolutePath());
+
+            audioPlayer.setOnPreparedListener(player -> {
+                player.start();
+                toast("جارٍ تشغيل الرسالة الصوتية.");
+            });
+
+            audioPlayer.setOnCompletionListener(player -> {
+                stopAudioPlayer();
+                file.delete();
+            });
+
+            audioPlayer.setOnErrorListener((player, what, extra) -> {
+                stopAudioPlayer();
+                file.delete();
+                toast("تعذر تشغيل ملف الصوت.");
+                return true;
+            });
+
+            audioPlayer.prepareAsync();
+
+        } catch (Exception e) {
+            stopAudioPlayer();
+            file.delete();
+            toast("تعذر فتح التسجيل.");
+        }
+    }
+
+    private void stopAudioPlayer() {
+        if (audioPlayer != null) {
+            try {
+                if (audioPlayer.isPlaying()) {
+                    audioPlayer.stop();
+                }
+            } catch (Exception ignored) {
+            }
+
+            try {
+                audioPlayer.release();
+            } catch (Exception ignored) {
+            }
+
+            audioPlayer = null;
+        }
+    }
+
+    private String readConnection(HttpURLConnection conn)
+            throws IOException {
+
+        InputStream stream;
+
+        int status = conn.getResponseCode();
+
+        if (status >= 400) {
+            stream = conn.getErrorStream();
+        } else {
+            stream = conn.getInputStream();
+        }
+
+        if (stream == null) return "";
+
+        try (InputStream in = stream;
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            byte[] buffer = new byte[4096];
+            int count;
+
+            while ((count = in.read(buffer)) != -1) {
+                out.write(buffer, 0, count);
+            }
+
+            return out.toString("UTF-8");
+        }
+    }
+
+    // =====================================================
+    // إرسال رسالة نصية
+    // =====================================================
 
     private void sendMessage() {
         if (messageInput == null || activeChat.isEmpty()) {
@@ -652,7 +1208,7 @@ public class MainActivity extends Activity {
         final String chatId = activeChat;
 
         String body = messageInput.getText()
-            .toString().trim();
+                .toString().trim();
 
         if (body.isEmpty()) return;
 
@@ -663,39 +1219,37 @@ public class MainActivity extends Activity {
 
         Map<String, Object> message = new HashMap<>();
         message.put("senderId", uid);
+        message.put("type", "text");
         message.put("text", body);
         message.put("createdAt", FieldValue.serverTimestamp());
 
         db.collection("chats")
-            .document(chatId)
-            .collection("messages")
-            .add(message)
-            .addOnSuccessListener(ref -> {
+                .document(chatId)
+                .collection("messages")
+                .add(message)
+                .addOnSuccessListener(ref -> {
+                    if (!chatId.equals(activeChat)
+                            || messageInput == null) {
+                        return;
+                    }
 
-                if (!chatId.equals(activeChat)
-                        || messageInput == null) {
-                    return;
-                }
+                    messageInput.setText("");
+                    playSendSound();
 
-                messageInput.setText("");
-
-                // صوت بعد نجاح الإرسال
-                playSendSound();
-
-                db.collection("chats")
-                    .document(chatId)
-                    .update(
-                        "updatedAt",
-                        FieldValue.serverTimestamp()
-                    );
-            })
-            .addOnFailureListener(e ->
-                toast("تعذر إرسال الرسالة. تحقق من صلاحيات Firestore."));
+                    db.collection("chats")
+                            .document(chatId)
+                            .update(
+                                    "updatedAt",
+                                    FieldValue.serverTimestamp()
+                            );
+                })
+                .addOnFailureListener(e ->
+                        toast("تعذر إرسال الرسالة. تحقق من صلاحيات Firestore."));
     }
 
-    // =========================
+    // =====================================================
     // إغلاق مستمعي Firebase
-    // =========================
+    // =====================================================
 
     private void stopChatListeners() {
         if (messagesListener != null) {
@@ -713,9 +1267,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    // =========================
+    // =====================================================
     // عناصر الواجهة
-    // =========================
+    // =====================================================
 
     private void addHeading(String value) {
         TextView text = makeText(value, 27, GOLD);
@@ -741,7 +1295,6 @@ public class MainActivity extends Activity {
         text.setText(value);
         text.setTextSize(size);
         text.setTextColor(color);
-
         return text;
     }
 
@@ -754,7 +1307,6 @@ public class MainActivity extends Activity {
         input.setInputType(type);
 
         root.addView(input);
-
         return input;
     }
 
@@ -769,7 +1321,6 @@ public class MainActivity extends Activity {
         shape.setCornerRadius(18);
 
         button.setBackground(shape);
-
         return button;
     }
 
@@ -778,22 +1329,20 @@ public class MainActivity extends Activity {
             Runnable action) {
 
         Button button = makeButton(value);
-
         button.setOnClickListener(v -> action.run());
 
         LinearLayout.LayoutParams params =
-            new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(-1, -2);
 
         params.setMargins(0, 6, 0, 6);
-
         root.addView(button, params);
     }
 
     private void toast(String value) {
         Toast.makeText(
-            this,
-            value,
-            Toast.LENGTH_LONG
+                this,
+                value,
+                Toast.LENGTH_LONG
         ).show();
     }
 
@@ -802,9 +1351,20 @@ public class MainActivity extends Activity {
         screenVersion++;
         closeAllListeners();
 
+        if (isRecording) {
+            isRecording = false;
+            releaseRecorder();
+        }
+
+        stopAudioPlayer();
+        voiceExecutor.shutdownNow();
+
         chatList = null;
         messageInput = null;
+        messagesContainer = null;
+        messagesScroll = null;
+        voiceButton = null;
 
         super.onDestroy();
     }
-                                           }
+                  }
