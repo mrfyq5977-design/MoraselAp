@@ -1270,8 +1270,7 @@ private void addButton(String value, Runnable action) {
 private void toast(String value) {
     Toast.makeText(this, value, Toast.LENGTH_LONG).show();
 }
-
-// =====================================================
+    // =====================================================
 // إغلاق التطبيق
 // =====================================================
 
@@ -1295,4 +1294,6 @@ protected void onDestroy() {
     voiceButton = null;
 
     super.onDestroy();
-            }
+}
+
+}
