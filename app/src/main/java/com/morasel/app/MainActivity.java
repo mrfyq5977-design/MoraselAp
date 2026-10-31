@@ -222,12 +222,51 @@ public class MainActivity extends Activity {
                     } else {
                         showCreateProfile();
                     }
-                })
-                .addOnFailureListener(e -> {
-                    showWelcome();
-                    toast("تعذر تحميل الحساب.");
-                });
+             private void loadProfile() {
+    if (uid == null || uid.trim().isEmpty()) {
+        showWelcome();
+        toast("معرف المستخدم غير موجود.");
+        return;
     }
+
+    db.collection("users")
+            .document(uid)
+            .get()
+            .addOnSuccessListener(doc -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+
+                String savedName = doc.getString("username");
+
+                if (doc.exists()
+                        && savedName != null
+                        && !savedName.trim().isEmpty()) {
+
+                    username = savedName.trim();
+                    showHome();
+
+                } else {
+                    showCreateProfile();
+                }
+            })
+            .addOnFailureListener(e -> {
+                android.util.Log.e(
+                        "Morasel",
+                        "Profile loading failed",
+                        e
+                );
+
+                showWelcome();
+
+                String error = e.getMessage();
+
+                toast("فشل تحميل الحساب: "
+                        + (error == null
+                        ? "خطأ غير معروف"
+                        : error));
+            });
+             }
 
     // =====================================================
     // شاشة التحميل والترحيب
