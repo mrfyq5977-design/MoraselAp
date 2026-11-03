@@ -1,0 +1,20 @@
+{
+  "name": "morasel-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Morasel secure audio upload server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.800.0",
+    "@aws-sdk/s3-request-presigner": "^3.800.0",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.2.0",
+    "multer": "^1.4.5-lts.2"
+  }
+}
