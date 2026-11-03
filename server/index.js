@@ -7,14 +7,16 @@ const app = express();
 
 app.use(express.json({ limit: "32kb" }));
 
-// إعداد Firebase Admin من متغيرات الخادم السرية
-const serviceAccountText = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+// إعداد Firebase Admin
+const serviceAccountText =
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
 if (!serviceAccountText) {
     throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is missing");
 }
 
 const serviceAccount = JSON.parse(serviceAccountText);
+
 if (serviceAccount.private_key) {
     serviceAccount.private_key =
         serviceAccount.private_key.replace(/\\n/g, "\n");
@@ -55,7 +57,9 @@ const upload = multer({
         ];
 
         if (!allowed.includes(file.mimetype)) {
-            return callback(new Error("Unsupported audio format"));
+            return callback(
+                new Error("Unsupported audio format")
+            );
         }
 
         callback(null, true);
@@ -86,10 +90,12 @@ async function requireAuth(req, res, next) {
     }
 }
 
-// التحقق من أن المستخدم عضو في المحادثة
+// التحقق من عضوية المستخدم في المحادثة
 async function checkChatMember(chatId, uid) {
-    if (typeof chatId !== "string" ||
-        !/^[a-zA-Z0-9_-]{1,150}$/.test(chatId)) {
+    if (
+        typeof chatId !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,150}$/.test(chatId)
+    ) {
         return false;
     }
 
@@ -100,6 +106,7 @@ async function checkChatMember(chatId, uid) {
     if (!chat.exists) return false;
 
     const participants = chat.get("participants") || [];
+
     return participants.includes(uid);
 }
 
@@ -147,7 +154,7 @@ app.post(
             const fileName =
                 "morasel-voice-" + Date.now() + "." + extension;
 
-            // بدء جلسة الرفع
+            // إنشاء جلسة رفع
             const initResponse = await fetch(
                 DOSYA_API + "/upload/init",
                 {
@@ -167,36 +174,44 @@ app.post(
 
             const initData = await initResponse.json();
 
-            if (!initResponse.ok ||
+            if (
+                !initResponse.ok ||
                 !initData.ok ||
                 !initData.upload_url ||
-                !initData.session_id) {
-                console.error("Dosya init failed:", initData);
+                !initData.session_id
+            ) {
+                console.error(
+                    "Dosya init failed:",
+                    initData
+                );
 
                 return res.status(502).json({
                     error: "Could not start Dosya upload"
                 });
             }
 
-            // هذا الخادم يقبل ملفات صغيرة فقط
+            // الملفات الصغيرة تستخدم رفع PUT واحد
             if (initData.resumable !== null) {
-                return res.status(400).json({
+                return res.status(502).json({
                     error: "Unexpected multipart upload session"
                 });
             }
 
-            // إرسال بايتات الصوت إلى Dosya
             const uploadUrl = new URL(
                 initData.upload_url,
                 DOSYA_API
             );
 
-            if (uploadUrl.origin !== new URL(DOSYA_API).origin) {
+            if (
+                uploadUrl.origin !==
+                new URL(DOSYA_API).origin
+            ) {
                 return res.status(502).json({
                     error: "Invalid upload destination"
                 });
             }
 
+            // إرسال الملف إلى Dosya
             const uploadResponse = await fetch(uploadUrl, {
                 method: "PUT",
                 headers: {
@@ -205,20 +220,35 @@ app.post(
                 body: req.file.buffer
             });
 
-            const uploadData = await uploadResponse.json();
-
-            if (!uploadResponse.ok ||
-                !uploadData.ok ||
-                !uploadData.file ||
-                !uploadData.file.id) {
-                console.error("Dosya upload failed:", uploadData);
+            if (!uploadResponse.ok) {
+                console.error(
+                    "Dosya upload failed:",
+                    uploadResponse.status
+                );
 
                 return res.status(502).json({
                     error: "Audio upload failed"
                 });
             }
 
-            // نعيد معرّف الملف فقط؛ لا نكشف مفتاح Dosya
+            // قراءة نتيجة الرفع
+            const uploadData = await uploadResponse.json();
+
+            if (
+                !uploadData.ok ||
+                !uploadData.file ||
+                !uploadData.file.id
+            ) {
+                console.error(
+                    "Dosya upload response:",
+                    uploadData
+                );
+
+                return res.status(502).json({
+                    error: "Invalid Dosya upload response"
+                });
+            }
+
             return res.status(201).json({
                 ok: true,
                 fileId: uploadData.file.id,
@@ -227,7 +257,10 @@ app.post(
             });
 
         } catch (error) {
-            console.error("Audio upload error:", error.message);
+            console.error(
+                "Audio upload error:",
+                error.message
+            );
 
             return res.status(500).json({
                 error: "Audio upload failed"
@@ -236,7 +269,7 @@ app.post(
     }
 );
 
-// تشغيل الصوت بعد التأكد من صلاحية المستخدم والمحادثة
+// تشغيل الصوت بعد التحقق من صلاحية المستخدم
 app.get(
     "/audio/:fileId",
     requireAuth,
@@ -245,7 +278,11 @@ app.get(
             const fileId = req.params.fileId;
             const chatId = req.query.chatId;
 
-            if (!/^file_[a-zA-Z0-9_-]+$/.test(fileId)) {
+            if (
+                typeof fileId !== "string" ||
+                fileId.length < 1 ||
+                fileId.length > 255
+            ) {
                 return res.status(400).json({
                     error: "Invalid file ID"
                 });
@@ -262,8 +299,7 @@ app.get(
                 });
             }
 
-            // لا نسمح بتحميل ملف إلا إذا كان مرتبطاً برسالة
-            // صوتية في هذه المحادثة
+            // التأكد أن الملف مرتبط برسالة صوتية
             const messages = await db.collection("chats")
                 .doc(chatId)
                 .collection("messages")
@@ -277,48 +313,102 @@ app.get(
                 });
             }
 
-            const downloadResponse = await fetch(
+            // الحصول على رابط تنزيل موقّع من Dosya
+            const grantResponse = await fetch(
                 DOSYA_API + "/files/" +
-                encodeURIComponent(fileId) + "/download",
+                encodeURIComponent(fileId) +
+                "/download-url",
                 {
+                    method: "GET",
                     headers: {
                         "Authorization": "Bearer " + DOSYA_API_KEY
-                    },
-                    redirect: "follow"
+                    }
                 }
             );
 
-            if (!downloadResponse.ok ||
-                !downloadResponse.body) {
+            if (!grantResponse.ok) {
+                console.error(
+                    "Dosya grant failed:",
+                    grantResponse.status
+                );
+
                 return res.status(502).json({
-                    error: "Could not download audio"
+                    error: "Could not obtain download permission"
+                });
+            }
+
+            const grant = await grantResponse.json();
+
+            if (
+                typeof grant.url !== "string" ||
+                !Number.isSafeInteger(grant.size) ||
+                grant.size < 0
+            ) {
+                return res.status(502).json({
+                    error: "Invalid Dosya download response"
+                });
+            }
+
+            // التحقق من أن الرابط يستخدم HTTPS
+            const signedUrl = new URL(grant.url);
+
+            if (signedUrl.protocol !== "https:") {
+                return res.status(502).json({
+                    error: "Invalid download URL"
+                });
+            }
+
+            // تنزيل الصوت دون إرسال مفتاح Dosya
+            const audioResponse = await fetch(signedUrl);
+
+            if (!audioResponse.ok) {
+                return res.status(502).json({
+                    error: "Could not fetch audio file"
+                });
+            }
+
+            const audioBuffer = Buffer.from(
+                await audioResponse.arrayBuffer()
+            );
+
+            // التحقق من حجم الملف
+            if (audioBuffer.length !== grant.size) {
+                return res.status(502).json({
+                    error: "Audio size verification failed"
                 });
             }
 
             res.setHeader(
                 "Content-Type",
-                downloadResponse.headers.get("content-type") ||
+                audioResponse.headers.get("content-type") ||
                 "application/octet-stream"
             );
 
-            res.setHeader("Cache-Control", "private, no-store");
-            res.setHeader("X-Content-Type-Options", "nosniff");
+            res.setHeader(
+                "Content-Length",
+                audioBuffer.length
+            );
 
-            if (downloadResponse.headers.get("content-length")) {
-                res.setHeader(
-                    "Content-Length",
-                    downloadResponse.headers.get("content-length")
-                );
-            }
+            res.setHeader(
+                "Cache-Control",
+                "private, no-store"
+            );
 
-            const { Readable } = require("node:stream");
-            Readable.fromWeb(downloadResponse.body).pipe(res);
+            res.setHeader(
+                "X-Content-Type-Options",
+                "nosniff"
+            );
+
+            return res.status(200).send(audioBuffer);
 
         } catch (error) {
-            console.error("Audio playback error:", error.message);
+            console.error(
+                "Audio playback error:",
+                error.message
+            );
 
             if (!res.headersSent) {
-                res.status(500).json({
+                return res.status(500).json({
                     error: "Audio playback failed"
                 });
             }
@@ -341,8 +431,11 @@ app.use((error, req, res, next) => {
     });
 });
 
+// تشغيل الخادم
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("Morasel Server is running on port " + PORT);
+    console.log(
+        "Morasel Server is running on port " + PORT
+    );
 });
