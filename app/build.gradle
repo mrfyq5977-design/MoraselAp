@@ -29,7 +29,7 @@ dependencies {
     // تسجيل الدخول برقم الهاتف
     implementation 'com.google.firebase:firebase-auth'
 
-    // قاعدة البيانات والرسائل
+    // قاعدة البيانات والمحادثات
     implementation 'com.google.firebase:firebase-firestore'
 
     // إشعارات الرسائل
@@ -37,4 +37,7 @@ dependencies {
 
     // دعم الإشعارات
     implementation 'androidx.core:core:1.15.0'
+
+    // الاتصال بالخادم
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }
